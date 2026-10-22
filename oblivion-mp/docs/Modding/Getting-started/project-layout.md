@@ -28,7 +28,7 @@ Each project references exactly one package, and both halves reference the share
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="ReadyM.SDK.Oblivion.Common" Version="1.0.0-rc.2" />
+        <PackageReference Include="ReadyM.SDK.Oblivion.Common" Version="1.0.0-rc.3" />
     </ItemGroup>
 
 </Project>
@@ -44,7 +44,7 @@ Each project references exactly one package, and both halves reference the share
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="ReadyM.SDK.Oblivion.Client" Version="1.0.0-rc.2" />
+        <PackageReference Include="ReadyM.SDK.Oblivion.Client" Version="1.0.0-rc.3" />
     </ItemGroup>
 
     <ItemGroup>
