@@ -80,6 +80,8 @@ jobs:
       pull-request: ${{ steps.resolve.outputs.pull-request }}
       name-prefix: ${{ steps.resolve.outputs.name-prefix }}
       sha: ${{ steps.resolve.outputs.sha }}
+      status-comment: ${{ steps.status.outputs.comment-id }}
+      status-details: ${{ steps.status.outputs.details }}
 
     steps:
       # GATE: only the default branch's copy of this workflow may act. Both the ref and the workflow's own ref are
@@ -257,6 +259,54 @@ jobs:
 
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "Previewing ${sha} for pull request ${number}."
+
+      # One comment per command, posted the moment it is accepted and edited in place as the run finishes, the way
+      # /build reports in oblivion-mod. It starts with only what was asked for and a link to this run, so a slow
+      # build is visibly a build rather than silence; the deploy, build-failed and clear jobs replace the heading
+      # and add the outcome below the same table.
+      - name: Post the status comment
+        id: status
+        if: steps.decision.outputs.decision == 'clear' || steps.resolve.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DECISION: ${{ steps.decision.outputs.decision }}
+          NUMBER: ${{ steps.resolve.outputs.pull-request }}
+          NAME_PREFIX: ${{ steps.resolve.outputs.name-prefix }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+          REQUESTER: ${{ github.event_name == 'issue_comment' && github.event.comment.user.login || github.triggering_actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$DECISION" = clear ]; then
+            heading="### 🧹 Clearing docs previews"
+            rows="| previews | every \`${NAME_PREFIX}-*\` |"
+          else
+            heading="### 🚀 Docs preview deploying"
+            name="${NAME_PREFIX}-${SHA:0:7}"
+            rows="| commit | [\`${SHA:0:7}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${NUMBER}/commits/${SHA}) |
+          | preview | \`${name}\` |
+          | address | https://${name}.${PREVIEW_DNS_SUFFIX} |"
+          fi
+
+          details="| | |
+          | --- | --- |
+          ${rows}
+          | requested by | @${REQUESTER} |
+          | run | [${GITHUB_RUN_ID}](${RUN_URL}) |"
+          # The lines above are indented with the script; a table row must start at the margin.
+          details="$(printf '%s\n' "$details" | sed 's/^[[:space:]]*//')"
+
+          printf '%s\n\n%s\n' "$heading" "$details" > "$RUNNER_TEMP/status.md"
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" \
+            --field body=@"$RUNNER_TEMP/status.md" --jq '.id')"
+
+          # A random delimiter, so nothing in the table can end the value early.
+          delimiter="$(openssl rand -hex 16)"
+          {
+            echo "comment-id=${id}"
+            echo "details<<${delimiter}"
+            echo "$details"
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
 
   # **Runs the pull request's code. Holds nothing.** No secret, no environment, a read-only token, a fresh machine
   # that is thrown away afterwards. check-preview-workflow.sh fails the gate if any of that changes.
@@ -566,24 +616,32 @@ jobs:
             --tags "${tags[@]}" \
             --only-show-errors --output none
 
+      # Turns the gate's status comment into the result, keeping its table. A new comment only if the gate's could
+      # not be found, so the outcome is never lost.
       - name: Report the preview on the pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          NAME: ${{ steps.stack.outputs.name }}
+          NUMBER: ${{ needs.gate.outputs.pull-request }}
+          COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
+          DETAILS: ${{ needs.gate.outputs.status-details }}
+          EXPIRES_AFTER: ${{ steps.app.outputs.expires-after }}
         run: |
-          cat > "$RUNNER_TEMP/comment.md" <<COMMENT
-          ### Docs preview for \`${{ steps.stack.outputs.short-sha }}\`
+          {
+            echo "### ✅ Docs preview ready"
+            echo
+            echo "$DETAILS"
+            echo
+            echo "Reachable on the tailnet only, and your machine needs to trust the preview certificate once."
+            echo "Deleted by the first daily sweep (04:17 UTC) after ${EXPIRES_AFTER}, whether or not this pull request is still open, or straight away by commenting \`/clearpreview\`."
+          } > "$RUNNER_TEMP/status.md"
 
-          https://${NAME}.${PREVIEW_DNS_SUFFIX}
-
-          Reachable on the tailnet only, and your machine needs to trust the preview certificate once.
-
-          Commit \`${{ needs.gate.outputs.sha }}\`, from [run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
-          Deleted by the first daily sweep (04:17 UTC) after ${{ steps.app.outputs.expires-after }}, whether or not this pull request is still open, or straight away by commenting \`/clearpreview\`.
-          COMMENT
-
-          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
-            --field body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          fi
 
       - name: Close the deployment as successful
         env:
@@ -626,18 +684,21 @@ jobs:
             --field log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             > /dev/null
 
-      # Say so on the pull request. A comment-triggered run is not attached to the pull request's checks, so
-      # otherwise a rocket is followed by nothing at all.
+      # Say so on the pull request, in the gate's status comment. A comment-triggered run is not attached to the pull
+      # request's checks, so otherwise the comment would say "deploying" forever.
       - name: Report the failure on the pull request
         if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ needs.gate.outputs.pull-request }}
+          COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
+          DETAILS: ${{ needs.gate.outputs.status-details }}
           JOB_STATUS: ${{ job.status }}
           EXISTED: ${{ steps.existing.outputs.existed }}
         run: |
           case "$JOB_STATUS" in
-            cancelled) outcome="was cancelled" ;;
-            *) outcome="failed" ;;
+            cancelled) heading="### ⏹️ Docs preview cancelled" ;;
+            *) heading="### ❌ Docs preview failed" ;;
           esac
 
           if [ "$EXISTED" = true ]; then
@@ -646,13 +707,21 @@ jobs:
             state="Nothing is running, and anything partly created has been deleted."
           fi
 
-          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
-            --field body="### Docs preview ${outcome}
+          {
+            echo "$heading"
+            echo
+            echo "$DETAILS"
+            echo
+            echo "${state} The run has the reason. Comment \`/preview\` to try again."
+          } > "$RUNNER_TEMP/status.md"
 
-          ${state}
-          [Run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) has the reason.
-
-          Comment \`/preview\` to try again." > /dev/null
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          fi
 
   # A failed build never reaches the deploy job, so it says so here, from a job that holds no secret.
   build-failed:
@@ -666,13 +735,25 @@ jobs:
       - name: Report the failure on the pull request
         env:
           GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ needs.gate.outputs.pull-request }}
+          COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
+          DETAILS: ${{ needs.gate.outputs.status-details }}
         run: |
-          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
-            --field body="### Docs preview failed to build
+          {
+            echo "### ❌ Docs preview failed to build"
+            echo
+            echo "$DETAILS"
+            echo
+            echo "Nothing was deployed. The run has the reason. Comment \`/preview\` to try again."
+          } > "$RUNNER_TEMP/status.md"
 
-          Nothing was deployed. [Run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) has the reason.
-
-          Comment \`/preview\` to try again." > /dev/null
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          fi
 
   clear:
     name: Clear
@@ -758,10 +839,26 @@ jobs:
       - name: Report on the pull request
         env:
           GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ needs.gate.outputs.pull-request }}
+          COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
+          DETAILS: ${{ needs.gate.outputs.status-details }}
+          COUNT: ${{ steps.delete.outputs.count }}
         run: |
-          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
-            --field body="Cleared ${{ steps.delete.outputs.count }} docs preview resources for this pull request. Comment \`/preview\` for a fresh one." \
-            > /dev/null
+          {
+            echo "### ✅ Docs previews cleared"
+            echo
+            echo "$DETAILS"
+            echo
+            echo "Deleted ${COUNT} docs preview resources. Comment \`/preview\` for a fresh one."
+          } > "$RUNNER_TEMP/status.md"
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          fi
 
       # A clear that fails is worse than a deploy that fails: the reaction says it was understood, so somebody
       # believes their previews are gone. Say otherwise.
@@ -769,11 +866,22 @@ jobs:
         if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ needs.gate.outputs.pull-request }}
+          COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
+          DETAILS: ${{ needs.gate.outputs.status-details }}
         run: |
-          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
-            --field body="### Clearing docs previews failed
+          {
+            echo "### ❌ Clearing docs previews failed"
+            echo
+            echo "$DETAILS"
+            echo
+            echo "Some or all of this pull request's docs previews may still be running. The run has the reason. Comment \`/clearpreview\` to try again."
+          } > "$RUNNER_TEMP/status.md"
 
-          Some or all of this pull request's docs previews may still be running.
-          [Run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) has the reason.
-
-          Comment \`/clearpreview\` to try again." > /dev/null
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments" \
+              --field body=@"$RUNNER_TEMP/status.md" > /dev/null
+          fi
