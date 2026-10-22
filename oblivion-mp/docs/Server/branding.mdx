@@ -1,23 +1,22 @@
 ---
-sidebar_position: 4.5
+sidebar_position: 4.25
 ---
 
-# Server card
+# Branding
 
-A server card is your server's own landing page in the Launcher. When a player opens your server's Join panel, the card is shown above the Join button: your layout, art, colors, rules, events and links, written in plain HTML and CSS.
+Two things make your server look like yours in the Launcher, and both are optional:
 
-Cards have no scripts. Everything else a page can do with HTML and CSS, including custom fonts and animations, works within the rules below.
+- a **server icon**, the small square image next to the server's name in the server list;
+- a **server card**, your own landing page in the server's Join panel.
 
-## Adding a card
-
-Create a `branding/card/` folder next to `config.json` and put an `index.html` in it. Any images and fonts the card uses go in the same folder. The `branding/` folder also holds your [server icon](server-icon).
+Both live in a `branding/` folder next to `config.json`:
 
 ```text
 server/
 ├── config.json
 ├── branding/
-|   ├── icon.png                      # The server icon, see Server icon
-|   └── card/
+|   ├── icon.png                      # The server icon
+|   └── card/                         # The server card
 |       ├── index.html                # The card itself
 |       ├── art/
 |       |   ├── banner.webp
@@ -26,6 +25,44 @@ server/
 |           └── title.woff2
 └── ...
 ```
+
+## Server icon
+
+### Adding an icon
+
+Put one image named `icon.png`, `icon.jpg`, `icon.jpeg` or `icon.webp` in the `branding/` folder.
+
+The icon is part of your server's [public listing](publishing-your-server), so it only shows while `ServerList:Enabled` is `true`.
+
+### What the icon must be
+
+| Rule | Value |
+| --- | --- |
+| Format | PNG, JPEG or WebP, matching the file's extension |
+| Shape | Square |
+| Size | From 64x64 to 512x512 pixels; 256x256 looks sharp on every screen |
+| File size | At most 256 KiB |
+
+SVG and ICO files are not accepted. Keep exactly one `icon.*` file: with more than one, none is used.
+
+When the server starts, and whenever the file changes, it checks the icon and logs a warning naming the file and the rule it breaks, if any.
+
+### How it reaches players
+
+Your server never sends the icon to players. It uploads the icon to ReadyM once, and players load it from ReadyM's servers. Players who browse the list don't connect to your server until they open its Join panel.
+
+- **Changing it:** replace the file. You **don't need to restart**: the server notices the change, and the new icon shows in the list within about a minute.
+- **Removing it:** delete the file. The list goes back to the default placeholder within about a minute.
+
+## Server card
+
+A server card is your server's own landing page in the Launcher. When a player opens your server's Join panel, the card is shown above the Join button: your layout, art, colors, rules, events and links, written in plain HTML and CSS.
+
+Cards have no scripts. Everything else a page can do with HTML and CSS, including custom fonts and animations, works within the rules below.
+
+### Adding a card
+
+Create a `card/` folder in `branding/` and put an `index.html` in it. Any images and fonts the card uses go in the same folder, as in the tree at the top of this page.
 
 A card can be just `index.html`. A minimal one:
 
@@ -58,20 +95,20 @@ For a quick preview while you write, open `index.html` straight from the folder 
 
 :::
 
-### Network
+#### Network
 
 The Launcher fetches the card over HTTP from your server's public address (`PublicHost` and `PublicPort` from the [server list settings](publishing-your-server)), on the same port as the [admin panel](admin-panel). If you forward ports, forward **TCP** on `PublicPort` to `Server.Port` as well as UDP. Otherwise players see the panel without your card.
 
-## How the card is shown
+### How the card is shown
 
 - **Size.** The card fills a box about **830 pixels wide**. Its height follows the size of the player's Launcher window, from 200 to 460 pixels, and the box scrolls vertically when your card is taller. Anything wider than the box is cut off. Put what matters most in the top 200 pixels.
 - **Defaults.** The card starts from a clean slate, not from the Launcher's styles: 13 px Inter in a light grey (`#e8e6ef`) over the panel's dark background. Images are never wider than the box.
 - **Around it.** The server name, ping, player count, password field and Join button are the Launcher's own and stay outside the card. A label under the card tells players the content comes from the server owner.
 - **No card,** or one that can't be shown: the Join panel shows your `Description` from `config.json` instead. Keep a short description set for players on older Launchers and for when the card can't load.
 
-## What you can use
+### What you can use
 
-### HTML
+#### HTML
 
 These elements are kept:
 
@@ -89,7 +126,7 @@ These elements are removed **together with their content**: scripts (`script`, `
 
 Any other element, a `label` or a custom tag for example, is unwrapped: the tag goes, its text and children stay.
 
-### CSS
+#### CSS
 
 Write CSS in `<style>` elements or `style` attributes. Modern CSS works as in a current Chromium browser: flexbox, grid, `clamp()`, `min()`, `max()`, `aspect-ratio`, `color-mix()`, custom properties, layered backgrounds, transforms, transitions, animations and `:hover` effects.
 
@@ -108,11 +145,11 @@ Write `url()` directly in a property rather than in a shorthand that also uses `
 
 :::
 
-### Animations
+#### Animations
 
 CSS animations and transitions always run.
 
-## Images and fonts
+### Images and fonts
 
 Images (`<img src>`) and CSS URLs (`url()`, in backgrounds and in `@font-face`) must be paths relative to the `branding/card/` folder, such as `logo.png` or `fonts/title.woff2`.
 
@@ -136,7 +173,7 @@ Supported file types:
 
 An SVG works as an image only (in `<img>` or a CSS background). It runs no script there and loads nothing.
 
-## Links
+### Links
 
 A card's buttons are links (`<a href>`) styled however you like. A link must be an `https://` URL with a domain name, up to 2,000 characters. Other links have their `href` removed: `http://`, relative links, IP addresses, `localhost`, URLs with a user name or password, and other schemes such as `mailto:`.
 
@@ -147,7 +184,7 @@ Links open in the player's web browser, never inside the Launcher. Before openin
 - `youtube.com`
 - `twitch.tv`
 
-## Limits
+### Limits
 
 | Limit | Value |
 | --- | --- |
@@ -164,4 +201,4 @@ When the server starts, it checks the `branding/card/` folder and logs a warning
 
 ---
 
-Cards come straight from your server, with no review by ReadyM. The [ReadyM Terms of Service](https://portal.ready.mp/en/terms) apply to them like to your server's name and description, and violations may get your server removed from the public list or your account banned.
+Icons and cards come straight from your server, with no review by ReadyM. The [ReadyM Terms of Service](https://portal.ready.mp/en/terms) apply to them like to your server's name and description, and violations may get your server removed from the public list or your account banned.
