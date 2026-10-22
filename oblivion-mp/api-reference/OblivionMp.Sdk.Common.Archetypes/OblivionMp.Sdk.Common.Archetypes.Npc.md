@@ -454,6 +454,18 @@ public bool IsMoving { get; set; }
 
  [bool](https://learn.microsoft.com/dotnet/api/system.boolean)
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_Npc_IsServerSeeded"></a> IsServerSeeded
+
+Set by the server when it writes an npc's items, so the owner client follows the list even when it is empty.
+
+```csharp
+public bool IsServerSeeded { get; set; }
+```
+
+#### Property Value
+
+ [bool](https://learn.microsoft.com/dotnet/api/system.boolean)
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_Npc_IsStartCompleted"></a> IsStartCompleted
 
 The game's <code>IsStartCompleted</code> animation flag.

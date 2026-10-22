@@ -44,6 +44,18 @@ public NetworkFormId CurrentPoison { get; set; }
 
  NetworkFormId
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_Mixins_Equipment_IsServerSeeded"></a> IsServerSeeded
+
+Set by the server when it writes an npc's items, so the owner client follows the list even when it is empty.
+
+```csharp
+public bool IsServerSeeded { get; set; }
+```
+
+#### Property Value
+
+ [bool](https://learn.microsoft.com/dotnet/api/system.boolean)
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_Mixins_Equipment_ItemsCount"></a> ItemsCount
 
 How many entries the inventory holds.
