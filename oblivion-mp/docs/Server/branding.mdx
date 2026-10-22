@@ -28,6 +28,13 @@ server/
 
 ## Server icon
 
+The icon shows next to your server's name in the server list. Servers without one get the default placeholder:
+
+<img
+  src={require('/img/docs/server-list-icons.png').default}
+  alt="Server list in the Launcher, with server icons next to some server names"
+/>
+
 ### Adding an icon
 
 Put one image named `icon.png`, `icon.jpg`, `icon.jpeg` or `icon.webp` in the `branding/` folder.
@@ -57,6 +64,12 @@ Your server never sends the icon to players. It uploads the icon to ReadyM once,
 ## Server card
 
 A server card is your server's own landing page in the Launcher. When a player opens your server's Join panel, the card is shown above the Join button: your layout, art, colors, rules, events and links, written in plain HTML and CSS.
+
+<img
+  src={require('/img/docs/server-card-example.png').default}
+  width={700}
+  alt="A server's Join panel in the Launcher, showing the server's card above the password field and the Join button"
+/>
 
 Cards have no scripts. Everything else a page can do with HTML and CSS, including custom fonts and animations, works within the rules below.
 
