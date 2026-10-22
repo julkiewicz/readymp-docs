@@ -1,0 +1,131 @@
+# Deletes docs previews deployed three or more days ago, open pull request or not, and docs previews whose pull
+# request closed three or more days ago. Daily, so a preview lives between three and four days.
+#
+# A copy of the ReadyM server's sweep, running the same script. It enumerates from Azure rather than from any
+# record of what was deployed, and selects on the `preview-repository` tag, so it only ever considers this
+# repository's previews: never the server's, which share the resource group, and never a fork's.
+#
+# It never checks out or runs anything from a pull request, so no pull request can influence what it does.
+name: Sweep previews
+
+on:
+  schedule:
+    # Same time as the server's sweep, which the preview comment quotes.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: Delete rather than report. Leave off to see what would happen.
+        required: false
+        type: boolean
+        default: false
+      retention-days:
+        description: How long a preview is kept after it was deployed, and after its pull request closes.
+        required: false
+        type: number
+        default: 3
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+env:
+  PREVIEW_RESOURCE_GROUP: readym-preview
+
+jobs:
+  # A fork inherits this file and its schedule, so a repository with no preview configuration must sweep nothing
+  # rather than fail at Azure login every morning. A separate job because a secret cannot be read in a job-level
+  # `if`, and only a job declaring the environment can see an environment secret. It reads the secret only to see
+  # whether it is there.
+  configured:
+    name: Check configuration
+    runs-on: ubuntu-latest
+    environment: Preview
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+
+    steps:
+      - name: Is this repository set up to deploy previews
+        id: check
+        env:
+          CREDENTIALS: ${{ secrets.AZURE_PREVIEW_CREDENTIALS }}
+        run: |
+          if [ -n "$CREDENTIALS" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::This repository has no AZURE_PREVIEW_CREDENTIALS on its Preview environment, so it has" \
+              "no previews to sweep. Skipping."
+          fi
+
+  sweep:
+    name: Sweep previews
+    needs: configured
+    if: needs.configured.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    environment: Preview
+    timeout-minutes: 20
+
+    steps:
+      # A manual run can delete every preview it considers expired, so it is held to the same rule as /clearpreview:
+      # the default branch's copy of this file, a first attempt, and somebody with write access who is also in
+      # PREVIEW_ALLOWED_USERS. The scheduled run is GitHub's own, on the default branch, and needs none of this.
+      - name: Check who started a manual run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTER: ${{ github.triggering_actor }}
+          ALLOWED_USERS: ${{ vars.PREVIEW_ALLOWED_USERS }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          refuse() { echo "::error::Refusing to sweep: $*"; exit 1; }
+
+          [ -n "$DEFAULT_BRANCH" ] || refuse "the event names no default branch."
+          [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] || refuse "running from $GITHUB_REF, not $DEFAULT_BRANCH."
+          case "$WORKFLOW_REF" in
+            *"@refs/heads/$DEFAULT_BRANCH") ;;
+            *) refuse "the workflow file comes from $WORKFLOW_REF, not $DEFAULT_BRANCH." ;;
+          esac
+          [ "$RUN_ATTEMPT" = 1 ] || refuse "this is attempt $RUN_ATTEMPT; dispatch again instead."
+
+          [ -n "$REQUESTER" ] || refuse "nobody is named as having asked."
+          can_push="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$REQUESTER/permission" \
+            --jq '.user.permissions.push' 2>/dev/null || true)"
+          [ "$can_push" = true ] || refuse "GitHub does not confirm $REQUESTER can push here (got '$can_push')."
+          printf '%s\n' "$ALLOWED_USERS" | tr ',' '\n' | tr ' ' '\n' | grep -qixF -- "$REQUESTER" \
+            || refuse "$REQUESTER is not in PREVIEW_ALLOWED_USERS."
+
+      # No ref given, so this is the default branch's copy of the script.
+      - name: Checkout the sweep
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_PREVIEW_CREDENTIALS }}
+
+      # The scheduled run deletes. Manual dispatch reports unless asked to delete, so there is always a way to see
+      # what a sweep would do without it doing anything.
+      - name: Sweep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DELETE: ${{ github.event_name == 'workflow_dispatch' && inputs.delete || github.event_name == 'schedule' }}
+          RETENTION_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.retention-days || 3 }}
+        run: |
+          arguments=(
+            -ResourceGroup "$PREVIEW_RESOURCE_GROUP"
+            -Repository "${{ github.repository }}"
+            -RetentionDays "$RETENTION_DAYS"
+          )
+
+          if [ "$DELETE" = true ]; then
+            arguments+=(-DeleteForReal)
+          fi
+
+          pwsh -NoProfile -File .github/scripts/Remove-ExpiredPreviewStacks.ps1 "${arguments[@]}"
