@@ -44,11 +44,6 @@ on:
         required: true
         type: number
 
-concurrency:
-  # `doc` because the server previews into the same resource group with its own pull request numbers.
-  group: preview-doc-${{ github.event.issue.number || inputs.pull-request }}
-  cancel-in-progress: false
-
 # Nothing by default. Every job asks for exactly what it needs, so a job that forgets gets nothing rather than
 # everything. check-preview-workflow.sh insists on this.
 permissions: {}
@@ -86,11 +81,21 @@ jobs:
     steps:
       # GATE: only the default branch's copy of this workflow may act. Both the ref and the workflow's own ref are
       # checked, because either alone can be satisfied by something the other would refuse.
-      - name: Refuse a workflow copy from any other branch
+      #
+      # GATE: and only a first attempt. A re-run keeps the original event, so the comment author it would vouch for
+      # is whoever commented, not whoever clicked re-run, and it runs the workflow as it was at the original commit,
+      # so a re-run could replay a gate from before a fix. Comment again instead.
+      - name: Refuse a workflow copy from any other branch, and re-runs
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
+          if [ "$RUN_ATTEMPT" != 1 ]; then
+            echo "::error::This is attempt ${RUN_ATTEMPT} of the run. Previews refuse re-runs; comment the command again."
+            exit 1
+          fi
+
           if [ -z "$DEFAULT_BRANCH" ] \
             || [ "$GITHUB_REF" != "refs/heads/${DEFAULT_BRANCH}" ] \
             || [ "${WORKFLOW_REF##*@}" != "refs/heads/${DEFAULT_BRANCH}" ]; then
@@ -109,8 +114,8 @@ jobs:
 
       # GATE: the shape of this file is what keeps pull request code away from the credential. Checked on every
       # run, so a change that breaks it stops previews the moment it merges.
-      - name: Check this workflow still separates pull request code from the credential
-        run: bash .github/scripts/check-preview-workflow.sh .github/workflows/preview.yml
+      - name: Check the workflows still separate pull request code from the credential
+        run: bash .github/scripts/check-preview-workflow.sh .github/workflows
 
       # GATE: a decision whose tests fail decides nothing.
       - name: Test the trigger decision
@@ -194,10 +199,18 @@ jobs:
         if: steps.decision.outputs.decision != 'skip'
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          DISPATCHED_NUMBER: ${{ inputs.pull-request }}
         run: |
           case "${{ github.event_name }}" in
-            issue_comment) number="${{ github.event.issue.number }}" ;;
-            workflow_dispatch) number="${{ inputs.pull-request }}" ;;
+            issue_comment) number="$ISSUE_NUMBER" ;;
+            workflow_dispatch) number="$DISPATCHED_NUMBER" ;;
+          esac
+
+          # Read through the environment and checked, never pasted into this script: it ends up in resource names
+          # and in commands the deploy and clear jobs run with the credential.
+          case "$number" in
+            '' | *[!0-9]*) echo "::error::'${number}' is not a pull request number."; exit 1 ;;
           esac
 
           echo "pull-request=${number}" >> "$GITHUB_OUTPUT"
@@ -288,6 +301,13 @@ jobs:
     needs: [gate, build]
     runs-on: ubuntu-latest
     environment: Preview
+    # Shared with clear, per pull request, so a deploy and a clear queue rather than race, and neither cancels one
+    # in progress. On these jobs rather than the whole run: every comment starts a run, and GitHub keeps only the
+    # newest pending run per group, so at the run level any later comment, from anyone, would silently replace a
+    # command waiting its turn. `doc` because the server previews into the same resource group.
+    concurrency:
+      group: preview-doc-${{ needs.gate.outputs.pull-request }}
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
@@ -311,8 +331,13 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
           RUNNER_KIND: ${{ runner.environment }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           refuse() { echo "::error::Refusing to deploy: $*"; exit 1; }
+
+          # A re-run keeps the original event, so REQUESTER below would still be the original commenter, and it runs
+          # the workflow as it was at the original commit.
+          [ "$RUN_ATTEMPT" = 1 ] || refuse "this is attempt $RUN_ATTEMPT; previews refuse re-runs."
 
           [ -n "$DEFAULT_BRANCH" ] || refuse "the event names no default branch."
           [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] || refuse "running from $GITHUB_REF, not $DEFAULT_BRANCH."
@@ -449,6 +474,21 @@ jobs:
               --resource-group "$PREVIEW_RESOURCE_GROUP" --query id --output tsv)"
           } >> "$GITHUB_OUTPUT"
 
+      # If this run fails, what it may release is only what it created, never a preview of the same head that was
+      # already up and working before it started.
+      - name: Note whether this preview already exists
+        id: existing
+        env:
+          NAME: ${{ steps.stack.outputs.name }}
+        run: |
+          if az containerapp show --name "$NAME" --resource-group "$PREVIEW_RESOURCE_GROUP" \
+            --only-show-errors --output none 2>/dev/null; then
+            echo "existed=true" >> "$GITHUB_OUTPUT"
+            echo "${NAME} already exists; it will be updated, and left in place if this run fails."
+          else
+            echo "existed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # The build context is the workspace: the default branch's `.ci` and the built `site`, nothing else.
       - name: Build and push the image
         id: image
@@ -480,9 +520,31 @@ jobs:
           ENVIRONMENT_ID: ${{ steps.shared.outputs.environment-id }}
           REGISTRY: ${{ steps.shared.outputs.registry-endpoint }}
           IDENTITY_ID: ${{ steps.shared.outputs.identity-id }}
+          EXISTED: ${{ steps.existing.outputs.existed }}
         run: |
           deployed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "expires-after=$(date -u -d "${deployed_at} + 3 days" '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+          tags=(
+            "preview-pull-request=${{ needs.gate.outputs.pull-request }}"
+            "preview-repository=${{ github.repository }}"
+            "preview-sha=${{ needs.gate.outputs.sha }}"
+            "preview-run=${{ github.run_id }}"
+            "preview-stack=${NAME}"
+            "preview-deployed-at=${deployed_at}"
+          )
+
+          # Previewing the same head again lands on the same name. Update it in place, with a fresh image and a
+          # fresh three days, rather than failing on a name that is taken.
+          if [ "$EXISTED" = true ]; then
+            az containerapp update \
+              --name "$NAME" \
+              --resource-group "$PREVIEW_RESOURCE_GROUP" \
+              --image "$IMAGE" \
+              --tags "${tags[@]}" \
+              --only-show-errors --output none
+            exit 0
+          fi
 
           az containerapp create \
             --name "$NAME" \
@@ -498,13 +560,7 @@ jobs:
             --memory 0.5Gi \
             --min-replicas 0 \
             --max-replicas 1 \
-            --tags \
-              "preview-pull-request=${{ needs.gate.outputs.pull-request }}" \
-              "preview-repository=${{ github.repository }}" \
-              "preview-sha=${{ needs.gate.outputs.sha }}" \
-              "preview-run=${{ github.run_id }}" \
-              "preview-stack=${NAME}" \
-              "preview-deployed-at=${deployed_at}" \
+            --tags "${tags[@]}" \
             --only-show-errors --output none
 
       - name: Report the preview on the pull request
@@ -540,8 +596,11 @@ jobs:
       # A run that ends early may have created the app without finishing, and nothing later would know to collect
       # an app that was never tagged. Deletes by name, which is known before anything exists. Best effort: the sweep
       # is the backstop.
+      #
+      # Only an app this run created. One that existed before it started is a preview somebody may be using, and
+      # stays; `existed` is unset when the run died before reaching Azure, when there is nothing to release anyway.
       - name: Release a partial stack
-        if: (failure() || cancelled()) && steps.stack.outputs.name != ''
+        if: (failure() || cancelled()) && steps.existing.outputs.existed == 'false'
         env:
           NAME: ${{ steps.stack.outputs.name }}
         run: |
@@ -571,16 +630,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           JOB_STATUS: ${{ job.status }}
+          EXISTED: ${{ steps.existing.outputs.existed }}
         run: |
           case "$JOB_STATUS" in
             cancelled) outcome="was cancelled" ;;
             *) outcome="failed" ;;
           esac
 
+          if [ "$EXISTED" = true ]; then
+            state="The preview already running for this commit was left as it was."
+          else
+            state="Nothing is running, and anything partly created has been deleted."
+          fi
+
           gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
             --field body="### Docs preview ${outcome}
 
-          Nothing is running, and anything partly created has been deleted.
+          ${state}
           [Run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) has the reason.
 
           Comment \`/preview\` to try again." > /dev/null
@@ -611,6 +677,9 @@ jobs:
     if: needs.gate.outputs.decision == 'clear'
     runs-on: ubuntu-latest
     environment: Preview
+    concurrency:
+      group: preview-doc-${{ needs.gate.outputs.pull-request }}
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
@@ -628,8 +697,13 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
           RUNNER_KIND: ${{ runner.environment }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           refuse() { echo "::error::Refusing to clear: $*"; exit 1; }
+
+          # A re-run keeps the original event, so REQUESTER below would still be the original commenter, and it runs
+          # the workflow as it was at the original commit.
+          [ "$RUN_ATTEMPT" = 1 ] || refuse "this is attempt $RUN_ATTEMPT; previews refuse re-runs."
 
           [ -n "$DEFAULT_BRANCH" ] || refuse "the event names no default branch."
           [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] || refuse "running from $GITHUB_REF, not $DEFAULT_BRANCH."

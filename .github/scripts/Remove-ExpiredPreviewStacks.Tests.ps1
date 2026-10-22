@@ -79,6 +79,25 @@ Expect -Expected $true -Description 'closed a moment ago, kept for nothing' -Clo
 Write-Host 'A clock that has drifted backwards does not delete:'
 Expect -Expected $false -Description 'closed in the future' -ClosedAt $now.AddDays(1)
 
+Write-Host 'Moments are read as exact instants, whatever the local time zone:'
+function ExpectInstant {
+    param($Value, [string] $ExpectedUtc, [string] $Description)
+    $actual = ConvertTo-Instant $Value
+    $actualText = if ($null -eq $actual) { 'null' } else { $actual.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ') }
+    if ($actualText -eq $ExpectedUtc) {
+        Write-Host "  ok    $Description"
+    } else {
+        Write-Host "  FAIL  $Description : expected $ExpectedUtc, got $actualText"
+        $script:failures++
+    }
+}
+ExpectInstant -Value '2026-10-20T10:00:00Z' -ExpectedUtc '2026-10-20T10:00:00Z' -Description 'an ISO string in UTC'
+ExpectInstant -Value ('{"t":"2026-10-20T10:00:00Z"}' | ConvertFrom-Json).t -ExpectedUtc '2026-10-20T10:00:00Z' `
+    -Description 'the same string after ConvertFrom-Json has made it a DateTime'
+ExpectInstant -Value '2026-10-20T10:00:00' -ExpectedUtc '2026-10-20T10:00:00Z' -Description 'a string with no zone is UTC'
+ExpectInstant -Value '2026-10-20T12:00:00+02:00' -ExpectedUtc '2026-10-20T10:00:00Z' -Description 'an explicit offset'
+ExpectInstant -Value 'not a date' -ExpectedUtc 'null' -Description 'something that is not a date'
+
 if ($failures -ne 0) {
     Write-Host "$failures failed."
     exit 1

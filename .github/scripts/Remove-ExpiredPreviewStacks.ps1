@@ -29,7 +29,8 @@
     here.
 
 .PARAMETER RetentionDays
-    How long a stack is kept after it was deployed, and after its pull request closes.
+    How long a stack is kept after it was deployed, and after its pull request closes. Between 1 and 30: anything
+    below 1 would expire every stack at once, which is what /clearpreview is for, with its own checks.
 
 .PARAMETER DeleteForReal
     Absent, this reports what it would delete and deletes nothing. That is the default deliberately: a deletion
@@ -40,7 +41,7 @@
 param(
     [Parameter(Mandatory)] [string] $ResourceGroup,
     [Parameter(Mandatory)] [string] $Repository,
-    [int] $RetentionDays = 3,
+    [ValidateRange(1, 30)] [int] $RetentionDays = 3,
     [switch] $DeleteForReal
 )
 
@@ -70,29 +71,57 @@ function Get-PreviewResource {
 }
 
 <#
-    Returns the moment a pull request stopped being worked on, or $null while it is still open.
+    Reads a moment from a tag or an API response as an exact instant.
 
-    A pull request that cannot be found at all is treated as closed long ago rather than as an error. That happens
-    when a repository is renamed or a pull request is deleted, and the stack it left behind is exactly what this
-    exists to collect. Crashing there would mean one unfindable pull request stops every other stack being
-    cleaned up.
+    ConvertFrom-Json turns ISO 8601 strings into DateTime values, and turning one of those back into text drops the
+    `Z`, so parsing that text reads it in the local time zone. Converting the DateTime itself keeps the instant. A
+    string with no zone is taken as UTC, which is what every writer here uses. Returns $null for anything else.
+#>
+function ConvertTo-Instant {
+    param($Value)
+
+    if ($Value -is [DateTimeOffset]) { return $Value }
+    if ($Value -is [datetime]) { return [DateTimeOffset]::new($Value.ToUniversalTime()) }
+
+    $parsed = [DateTimeOffset]::MinValue
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal
+    if ([DateTimeOffset]::TryParse("$Value".Trim(), [Globalization.CultureInfo]::InvariantCulture, $styles, [ref] $parsed)) {
+        return $parsed
+    }
+
+    $null
+}
+
+<#
+    Returns the moment a pull request stopped being worked on, or $null while it is still open or when its state
+    could not be established.
+
+    A pull request GitHub reports as not existing is treated as closed long ago rather than as an error. That
+    happens when a repository is renamed or a pull request is deleted, and the stack it left behind is exactly what
+    this exists to collect. Any other failure (a rate limit, a 5xx, the network) is not knowing, and not knowing is
+    never a reason to delete: it warns and the close rule does not apply. The deploy-age rule still does.
 #>
 function Get-PullRequestClosedAt {
     param([string] $Repository, [string] $Number)
 
-    $json = gh api "repos/$Repository/pulls/$Number" 2>$null
+    $output = gh api "repos/$Repository/pulls/$Number" 2>&1
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "  pull request $Number could not be found; treating its stacks as collectable."
-        return [DateTimeOffset]::MinValue
+        if ("$output" -match 'HTTP 404') {
+            Write-Host "  pull request $Number could not be found; treating its stacks as collectable."
+            return [DateTimeOffset]::MinValue
+        }
+
+        Write-Warning "  could not ask GitHub about pull request $Number, so its close date is not used: $output"
+        return $null
     }
 
-    $pull = $json | ConvertFrom-Json
+    $pull = $output | ConvertFrom-Json
 
     if ($pull.state -eq 'open') { return $null }
 
     # merged_at and closed_at are both set on a merged pull request, and closed_at alone on a rejected one.
-    [DateTimeOffset]::Parse($pull.closed_at)
+    ConvertTo-Instant $pull.closed_at
 }
 
 <#
@@ -109,8 +138,8 @@ function Get-StackDeployedAt {
 
     $tagged = $Tags.'preview-deployed-at'
     if ($tagged) {
-        $parsed = [DateTimeOffset]::MinValue
-        if ([DateTimeOffset]::TryParse($tagged, [ref] $parsed)) { return $parsed }
+        $instant = ConvertTo-Instant $tagged
+        if ($null -ne $instant) { return $instant }
         Write-Warning "  preview-deployed-at '$tagged' is not a date; falling back to the run."
     }
 
@@ -119,7 +148,10 @@ function Get-StackDeployedAt {
 
     $output = gh api "repos/$Repository/actions/runs/$run" --jq '.created_at' 2>&1
 
-    if ($LASTEXITCODE -eq 0) { return [DateTimeOffset]::Parse("$output".Trim()) }
+    if ($LASTEXITCODE -eq 0) {
+        $instant = ConvertTo-Instant "$output"
+        if ($null -ne $instant) { return $instant }
+    }
 
     if ("$output" -match 'HTTP 404') {
         Write-Host "  run $run could not be found; treating its stack as deployed long ago."
@@ -199,7 +231,7 @@ foreach ($stack in $stacks) {
         elseif ($deployed -eq [DateTimeOffset]::MinValue) { 'deployed long ago' }
         else { 'deployed {0:N1} day(s) ago' -f ($now - $deployed).TotalDays }
 
-        if ($null -eq $closed) { 'pull request open' }
+        if ($null -eq $closed) { 'pull request not closed' }
         elseif ($closed -eq [DateTimeOffset]::MinValue) { 'pull request not found' }
         else { 'closed {0:N1} day(s) ago' -f ($now - $closed).TotalDays }
     ) -join ', '
