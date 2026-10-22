@@ -74,6 +74,23 @@ yarn serve --locale zh-Hans # Chinese
 
 This command generates static content into the `build` directory and can be served using any static contents hosting service.
 
+## Preview a pull request
+
+Comment `/preview` on a pull request to build its current head and serve it at
+`https://doc-<pull request>-<first 7 characters of the sha>.preview.readymod.io`. The address is commented on the
+pull request when it is ready, after a few minutes.
+
+- **Team only.** Commenting needs write access to this repository and a place in the `PREVIEW_ALLOWED_USERS`
+  variable, which an admin keeps. Anyone else's comment does nothing.
+- **Tailnet only.** The address answers on the team tailnet and nowhere else, and your machine needs to trust the
+  preview certificate once, the same one the ReadyM server's previews use.
+- **Three days.** A preview is deleted by the daily sweep once it is three days old, whether or not the pull request
+  is still open. Comment `/clearpreview` to delete a pull request's previews straight away.
+- **Read it first.** A preview builds the pull request's code. On a pull request from outside the team, read the
+  change before you type `/preview`.
+
+How it is kept safe in a public repository is explained at the top of `.github/workflows/preview.yml`.
+
 ## Add a new version
 
 To add a new version for a documentation page, follow this guide: https://docusaurus.io/docs/docs-multi-instance#tagging-new-versions.

@@ -1,0 +1,702 @@
+# Stands up a docs preview: the site built from one pull request's head, served on the team tailnet and nowhere
+# else, at https://doc-<pull request>-<sha7>.preview.readymod.io.
+#
+# Comment /preview on a pull request, or dispatch this by hand from the default branch. Comment /clearpreview or
+# /clearpreviews to delete every docs preview for the pull request. Each preview is deleted anyway by the first
+# daily sweep (preview-sweep.yml) once it is three days old, whether or not the pull request is still open.
+#
+# It runs on the ReadyM server's preview infrastructure: the same Azure resource group, Container Apps environment,
+# registry and DNS suffix. Docs stacks are named `doc-...` and server stacks `srv-...`, so clearing or sweeping in
+# one repository can never reach the other's.
+#
+# **This repository is public, and that shapes everything below.** Anyone can open a pull request, and a preview
+# builds that pull request's code. Four jobs keep that code away from the Azure credential:
+#
+#   gate    Decides. No secret, no pull request code. Stage one of the gate: who asked, which workflow copy is
+#           running, and whether this file still has the shape that makes the rest safe.
+#   build   Runs the pull request's `yarn install` and `yarn build`. No secret, no environment, a read-only token.
+#           Hands over the built site as an artifact and nothing else.
+#   deploy  Holds the credential. Stage two of the gate, written separately from stage one. Never runs the pull
+#           request's code: it copies the built files into an nginx image built from this branch's Dockerfile.
+#   clear   Holds the credential. Stage two of the gate, then deletes by name.
+#
+# This holds because GitHub-hosted runners give every job a fresh machine, and a job only receives a secret it
+# references or an environment it declares. Steps share a machine; jobs do not. So the separation is between jobs,
+# and .github/scripts/check-preview-workflow.sh refuses to continue if this file stops keeping it.
+#
+# **Which copy of this file runs.** A comment always runs the default branch's copy. A manual dispatch runs the
+# copy on whichever branch is picked, which could be an edited one, so both stages refuse anything but the default
+# branch's, and the Preview environment only releases its secret to the default branch besides.
+#
+# Accepted risks, recorded in the ReadyM server's docs/dev/specs/current-docs-previews-and-expiry.md: the head can
+# move between a teammate reading a pull request and the deploy, and a build can write to the default branch's
+# Actions cache. Both need a teammate to preview a malicious pull request, so read a pull request from outside the
+# team before typing /preview on it.
+name: Preview
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pull-request:
+        description: Pull request to preview. Its current head is deployed.
+        required: true
+        type: number
+
+concurrency:
+  # `doc` because the server previews into the same resource group with its own pull request numbers.
+  group: preview-doc-${{ github.event.issue.number || inputs.pull-request }}
+  cancel-in-progress: false
+
+# Nothing by default. Every job asks for exactly what it needs, so a job that forgets gets nothing rather than
+# everything. check-preview-workflow.sh insists on this.
+permissions: {}
+
+env:
+  # Shared preview infrastructure, created once by hand for the ReadyM server. Nothing here creates or modifies any
+  # of it. Names, not secrets: the server's own workflow carries the same ones.
+  PREVIEW_RESOURCE_GROUP: readym-preview
+  PREVIEW_ENVIRONMENT: readym-preview-env
+  PREVIEW_IDENTITY: readym-preview-pull
+  PREVIEW_REGISTRY: readycodepreview
+  PREVIEW_DNS_SUFFIX: preview.readymod.io
+
+  # Where the deploy job's two inputs land: the default branch's `.github`, and the built site.
+  CI_DIR: .ci
+  SITE_DIR: site
+
+jobs:
+  # **Stage one of the gate.** Every check fails closed. The deploy and clear jobs repeat the identity and branch
+  # checks on their own, written separately, so one careless edit cannot remove both. Do not relax a check here
+  # because the other stage has it: the point is that both have to be broken at once.
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reacting to the command on the pull request.
+      pull-requests: write
+    outputs:
+      decision: ${{ steps.decision.outputs.decision }}
+      pull-request: ${{ steps.resolve.outputs.pull-request }}
+      name-prefix: ${{ steps.resolve.outputs.name-prefix }}
+      sha: ${{ steps.resolve.outputs.sha }}
+
+    steps:
+      # GATE: only the default branch's copy of this workflow may act. Both the ref and the workflow's own ref are
+      # checked, because either alone can be satisfied by something the other would refuse.
+      - name: Refuse a workflow copy from any other branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          if [ -z "$DEFAULT_BRANCH" ] \
+            || [ "$GITHUB_REF" != "refs/heads/${DEFAULT_BRANCH}" ] \
+            || [ "${WORKFLOW_REF##*@}" != "refs/heads/${DEFAULT_BRANCH}" ]; then
+            echo "::error::This run uses the workflow from '${GITHUB_REF}' (${WORKFLOW_REF}). Previews only run" \
+              "from the default branch, '${DEFAULT_BRANCH}'. Dispatch from there."
+            exit 1
+          fi
+
+      # No ref given, so this is the default branch: the checks that run are the reviewed-and-merged ones, never a
+      # copy from the pull request being previewed.
+      - name: Checkout the gate
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+
+      # GATE: the shape of this file is what keeps pull request code away from the credential. Checked on every
+      # run, so a change that breaks it stops previews the moment it merges.
+      - name: Check this workflow still separates pull request code from the credential
+        run: bash .github/scripts/check-preview-workflow.sh .github/workflows/preview.yml
+
+      # GATE: a decision whose tests fail decides nothing.
+      - name: Test the trigger decision
+        run: bash .github/scripts/preview-trigger.test.sh
+
+      # GATE: two independent identity checks, and both must say yes.
+      #
+      #   1. GitHub's collaborator permission API says admin, maintain or write. Asked outright rather than read
+      #      from the event payload, and anything other than a clear yes, the API refusing to answer included, is
+      #      a no.
+      #   2. The `PREVIEW_ALLOWED_USERS` variable names them. Only an admin can edit a variable, so this is a
+      #      source the permission API cannot vouch for and a writer cannot change. Unset or empty means nobody,
+      #      which is also what keeps a fork that was never set up for previews from trying.
+      #
+      # `author_association` from the event was the obvious second source and was rejected: GitHub reports people
+      # with private organisation membership as CONTRIBUTOR or NONE, which would silently refuse real teammates.
+      - name: Establish whether the requester may deploy
+        id: author
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTER: ${{ github.event_name == 'issue_comment' && github.event.comment.user.login || github.triggering_actor }}
+          ALLOWED_USERS: ${{ vars.PREVIEW_ALLOWED_USERS }}
+        run: |
+          permission="$(gh api "repos/${{ github.repository }}/collaborators/${REQUESTER}/permission" \
+            --jq '.permission' 2>/dev/null || echo unknown)"
+
+          case "$permission" in
+            admin | maintain | write) has_write=true ;;
+            *) has_write=false ;;
+          esac
+
+          # Logins separated by commas, spaces or newlines. GitHub logins are case-insensitive, so compare lowered.
+          # Globbing off, so a stray `*` in the list is a login that matches nobody rather than every file here.
+          set -f
+          requester_lower="$(printf '%s' "$REQUESTER" | tr '[:upper:]' '[:lower:]')"
+          listed=false
+          for login in $(printf '%s' "$ALLOWED_USERS" | tr ',' ' ' | tr '[:upper:]' '[:lower:]'); do
+            if [ -n "$requester_lower" ] && [ "$login" = "$requester_lower" ]; then
+              listed=true
+            fi
+          done
+
+          if [ "$has_write" = true ] && [ "$listed" = true ]; then
+            may_deploy=true
+          else
+            may_deploy=false
+          fi
+
+          echo "may-deploy=${may_deploy}" >> "$GITHUB_OUTPUT"
+          echo "${REQUESTER}: permission '${permission}', allowlisted ${listed}, so may-deploy is ${may_deploy}."
+
+      - name: Decide whether this event asks for a preview
+        id: decision
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ON_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+        run: |
+          decision="$(bash .github/scripts/preview-trigger.sh \
+            "${{ github.event_name }}" \
+            "${{ steps.author.outputs.may-deploy }}" \
+            "$COMMENT_BODY" \
+            "$ON_PULL_REQUEST")"
+          echo "decision=${decision}" >> "$GITHUB_OUTPUT"
+          echo "Decision: ${decision}"
+
+      # A comment-triggered run is not attached to the pull request's checks, so without this the command looks
+      # like it did nothing. A different reaction per command, so the acknowledgement also says which one was
+      # understood.
+      - name: Acknowledge the command
+        if: steps.decision.outputs.decision != 'skip' && github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REACTION: ${{ steps.decision.outputs.decision == 'clear' && 'eyes' || 'rocket' }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            --field content="$REACTION" > /dev/null
+
+      - name: Resolve the pull request and the commit
+        id: resolve
+        if: steps.decision.outputs.decision != 'skip'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "${{ github.event_name }}" in
+            issue_comment) number="${{ github.event.issue.number }}" ;;
+            workflow_dispatch) number="${{ inputs.pull-request }}" ;;
+          esac
+
+          echo "pull-request=${number}" >> "$GITHUB_OUTPUT"
+
+          # **The stack name identifies the kind of preview and the repository, not just the pull request.** Every
+          # docs prefix starts `doc` and every server prefix `srv`, so clearing, which selects on the prefix, can
+          # never reach the other repository's stacks. The upstream, owned by readycodeio, keeps the bare `doc-`;
+          # a fork carries its owner, because pull request numbers restart per repository.
+          if [ "${{ github.repository_owner }}" = readycodeio ]; then
+            name_prefix="doc-${number}"
+          else
+            owner="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')"
+            slug_budget=$((24 - 3 - 1 - ${#number}))
+            name_prefix="doc${owner:0:$slug_budget}-${number}"
+          fi
+
+          # The container app is named <prefix>-<7 char sha> and Azure caps that at 32 characters, so the prefix
+          # has 24. Fail here, where the message can say why, rather than halfway through a deploy.
+          if [ "${#name_prefix}" -gt 24 ]; then
+            echo "::error::Stack prefix '${name_prefix}' is ${#name_prefix} characters; 24 is the most that fits" \
+              "a 32 character container app name."
+            exit 1
+          fi
+
+          echo "name-prefix=${name_prefix}" >> "$GITHUB_OUTPUT"
+          echo "Docs previews for this pull request are named ${name_prefix}-<sha>."
+
+          if [ "${{ steps.decision.outputs.decision }}" = clear ]; then
+            echo "Clearing every docs preview for pull request ${number}."
+            exit 0
+          fi
+
+          # Always the pull request's current head. A closed pull request deploys nothing.
+          sha="$(gh pr view "$number" --repo "${{ github.repository }}" --json headRefOid,state --jq \
+            'select(.state == "OPEN") | .headRefOid')"
+
+          if [ -z "$sha" ]; then
+            echo "Pull request ${number} is not open, so there is nothing to preview."
+            exit 0
+          fi
+
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Previewing ${sha} for pull request ${number}."
+
+  # **Runs the pull request's code. Holds nothing.** No secret, no environment, a read-only token, a fresh machine
+  # that is thrown away afterwards. check-preview-workflow.sh fails the gate if any of that changes.
+  #
+  # No dependency cache: a cache written from here is stored under the default branch, where trusted runs would
+  # restore it.
+  build:
+    name: Build
+    needs: gate
+    if: needs.gate.outputs.sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout the commit being previewed
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build the site
+        run: yarn build
+
+      # The only thing that leaves this job. Kept a day: the deploy job collects it minutes later.
+      - name: Hand over the built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-site
+          path: build
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy
+    needs: [gate, build]
+    runs-on: ubuntu-latest
+    environment: Preview
+    permissions:
+      contents: read
+      pull-requests: write
+      # A deployment per stack is how the address surfaces on the pull request.
+      deployments: write
+    timeout-minutes: 20
+
+    steps:
+      # **Stage two of the gate**, before anything touches Azure. The gate job checked all of this already; this
+      # checks it again, written separately and reading nothing that job produced, so that breaking the guarantee
+      # takes two edits in two places at once. Do not replace this with a call to the gate's logic or a read of
+      # its outputs, and do not relax it because the gate has it.
+      #
+      # The identity check asks the same API for a different field (`push`, rather than the role name) and reads
+      # the allowlist with a different parser, so a mistake copied from one into the other is not likely.
+      - name: Check again who asked, and which workflow copy is running
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTER: ${{ github.event_name == 'issue_comment' && github.event.comment.user.login || github.triggering_actor }}
+          ALLOWED_USERS: ${{ vars.PREVIEW_ALLOWED_USERS }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUNNER_KIND: ${{ runner.environment }}
+        run: |
+          refuse() { echo "::error::Refusing to deploy: $*"; exit 1; }
+
+          [ -n "$DEFAULT_BRANCH" ] || refuse "the event names no default branch."
+          [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] || refuse "running from $GITHUB_REF, not $DEFAULT_BRANCH."
+          case "$WORKFLOW_REF" in
+            *"@refs/heads/$DEFAULT_BRANCH") ;;
+            *) refuse "the workflow file comes from $WORKFLOW_REF, not $DEFAULT_BRANCH." ;;
+          esac
+
+          # A self-hosted runner is not wiped between jobs, so nothing about job separation holds on one.
+          [ "$RUNNER_KIND" = github-hosted ] || refuse "this is a '$RUNNER_KIND' runner, not a GitHub-hosted one."
+
+          [ -n "$REQUESTER" ] || refuse "nobody is named as having asked."
+          can_push="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$REQUESTER/permission" \
+            --jq '.user.permissions.push' 2>/dev/null || true)"
+          [ "$can_push" = true ] || refuse "GitHub does not confirm $REQUESTER can push here (got '$can_push')."
+
+          printf '%s\n' "$ALLOWED_USERS" | tr ',' '\n' | tr ' ' '\n' | grep -qixF -- "$REQUESTER" \
+            || refuse "$REQUESTER is not in PREVIEW_ALLOWED_USERS."
+
+          # Nothing has been checked out yet, so nothing should be here. Anything that is came from somewhere this
+          # job did not put it.
+          [ -z "$(ls -A "$GITHUB_WORKSPACE")" ] || refuse "the workspace is not empty before checkout."
+
+          echo "Stage two passed for $REQUESTER, from $DEFAULT_BRANCH, on a GitHub-hosted runner."
+
+      # The default branch's Dockerfile and nginx config. No ref given, deliberately: never the pull request's.
+      - name: Checkout the image definition
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+          path: ${{ env.CI_DIR }}
+          persist-credentials: false
+
+      # Part of stage two: what this job will build from is the commit the run was started from on the default
+      # branch, and nothing else is in the workspace.
+      - name: Check the image definition is the default branch's
+        run: |
+          actual="$(git -C "$CI_DIR" rev-parse HEAD)"
+          if [ "$actual" != "$GITHUB_SHA" ]; then
+            echo "::error::Refusing to deploy: the image definition is at ${actual}, not ${GITHUB_SHA}."
+            exit 1
+          fi
+          if [ "$(ls -A "$GITHUB_WORKSPACE")" != "$CI_DIR" ]; then
+            echo "::error::Refusing to deploy: the workspace holds more than ${CI_DIR}: $(ls -A "$GITHUB_WORKSPACE")"
+            exit 1
+          fi
+
+      - name: Collect the built site
+        uses: actions/download-artifact@v4
+        with:
+          name: preview-site
+          path: ${{ env.SITE_DIR }}
+
+      # Part of stage two: the built site is files and folders, and only that. It is copied into the image, never
+      # run, but a symlink could point the copy at something outside it.
+      - name: Check the built site is only files and folders
+        run: |
+          odd="$(find "$SITE_DIR" ! -type f ! -type d)"
+          if [ -n "$odd" ]; then
+            echo "::error::Refusing to deploy: the built site holds things that are not plain files or folders:"
+            echo "$odd"
+            exit 1
+          fi
+
+          # The real site is around 100 MB with every locale. Anything far past that is not a docs site.
+          size_mb="$(du -sm "$SITE_DIR" | cut -f1)"
+          if [ "$size_mb" -gt 1024 ]; then
+            echo "::error::Refusing to deploy: the built site is ${size_mb} MB, over the 1024 MB limit."
+            exit 1
+          fi
+
+          if [ ! -f "$SITE_DIR/index.html" ]; then
+            echo "::error::Refusing to deploy: the built site has no index.html."
+            exit 1
+          fi
+
+          echo "Built site: ${size_mb} MB of plain files."
+
+      - name: Derive the stack name
+        id: stack
+        env:
+          SHA: ${{ needs.gate.outputs.sha }}
+          NAME_PREFIX: ${{ needs.gate.outputs.name-prefix }}
+        run: |
+          short_sha="${SHA:0:7}"
+          echo "name=${NAME_PREFIX}-${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "short-sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Deploying ${NAME_PREFIX}-${short_sha}."
+
+      # One deployment per stack, so the pull request shows each preview and its address. `required_contexts: []`
+      # lets it be created while checks are still pending, which during a preview they always are.
+      - name: Open a deployment
+        id: deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/deployment.json" <<JSON
+          {
+            "ref": "${{ needs.gate.outputs.sha }}",
+            "environment": "${{ steps.stack.outputs.name }}",
+            "description": "Docs preview for this commit",
+            "auto_merge": false,
+            "transient_environment": true,
+            "production_environment": false,
+            "required_contexts": []
+          }
+          JSON
+
+          id="$(gh api --method POST "repos/${{ github.repository }}/deployments" \
+            --input "$RUNNER_TEMP/deployment.json" --jq '.id')"
+          echo "id=${id}" >> "$GITHUB_OUTPUT"
+
+          gh api --method POST "repos/${{ github.repository }}/deployments/${id}/statuses" \
+            --field state=in_progress \
+            --field log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > /dev/null
+
+      # A secret on this repository's Preview environment, not the organisation secret the server uses: that one is
+      # shared with private repositories only. Contributor on the preview resource group and nothing wider.
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_PREVIEW_CREDENTIALS }}
+
+      - name: Read the shared infrastructure identifiers
+        id: shared
+        run: |
+          {
+            echo "environment-id=$(az containerapp env show --name "$PREVIEW_ENVIRONMENT" \
+              --resource-group "$PREVIEW_RESOURCE_GROUP" --query id --output tsv)"
+            echo "registry-endpoint=$(az acr show --name "$PREVIEW_REGISTRY" \
+              --query loginServer --output tsv)"
+            echo "identity-id=$(az identity show --name "$PREVIEW_IDENTITY" \
+              --resource-group "$PREVIEW_RESOURCE_GROUP" --query id --output tsv)"
+          } >> "$GITHUB_OUTPUT"
+
+      # The build context is the workspace: the default branch's `.ci` and the built `site`, nothing else.
+      - name: Build and push the image
+        id: image
+        env:
+          NAME: ${{ steps.stack.outputs.name }}
+          REGISTRY: ${{ steps.shared.outputs.registry-endpoint }}
+          TAG: ${{ steps.stack.outputs.short-sha }}
+        run: |
+          token="$(az acr login --name "$PREVIEW_REGISTRY" --expose-token --query accessToken --output tsv)"
+          echo "$token" | docker login "$REGISTRY" \
+            --username 00000000-0000-0000-0000-000000000000 --password-stdin
+
+          image="${REGISTRY}/${NAME}:${TAG}"
+          docker build --file "$CI_DIR/.github/preview/Dockerfile" --tag "$image" "$GITHUB_WORKSPACE"
+          docker push "$image"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+
+      # One container app in the shared environment, which has an internal virtual IP: reachable from the tailnet
+      # through the gateway, and from nowhere else. `--ingress external` means outside the environment, which for
+      # an internal environment is still only its private network. Scales to zero while nobody is looking.
+      #
+      # Tagged at creation, so a stack is never untagged and the sweep always finds it. `preview-deployed-at` is
+      # what its three days are counted from.
+      - name: Create the container app
+        id: app
+        env:
+          NAME: ${{ steps.stack.outputs.name }}
+          IMAGE: ${{ steps.image.outputs.image }}
+          ENVIRONMENT_ID: ${{ steps.shared.outputs.environment-id }}
+          REGISTRY: ${{ steps.shared.outputs.registry-endpoint }}
+          IDENTITY_ID: ${{ steps.shared.outputs.identity-id }}
+        run: |
+          deployed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "expires-after=$(date -u -d "${deployed_at} + 3 days" '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+          az containerapp create \
+            --name "$NAME" \
+            --resource-group "$PREVIEW_RESOURCE_GROUP" \
+            --environment "$ENVIRONMENT_ID" \
+            --image "$IMAGE" \
+            --registry-server "$REGISTRY" \
+            --registry-identity "$IDENTITY_ID" \
+            --user-assigned "$IDENTITY_ID" \
+            --ingress external \
+            --target-port 8080 \
+            --cpu 0.25 \
+            --memory 0.5Gi \
+            --min-replicas 0 \
+            --max-replicas 1 \
+            --tags \
+              "preview-pull-request=${{ needs.gate.outputs.pull-request }}" \
+              "preview-repository=${{ github.repository }}" \
+              "preview-sha=${{ needs.gate.outputs.sha }}" \
+              "preview-run=${{ github.run_id }}" \
+              "preview-stack=${NAME}" \
+              "preview-deployed-at=${deployed_at}" \
+            --only-show-errors --output none
+
+      - name: Report the preview on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.stack.outputs.name }}
+        run: |
+          cat > "$RUNNER_TEMP/comment.md" <<COMMENT
+          ### Docs preview for \`${{ steps.stack.outputs.short-sha }}\`
+
+          https://${NAME}.${PREVIEW_DNS_SUFFIX}
+
+          Reachable on the tailnet only, and your machine needs to trust the preview certificate once.
+
+          Commit \`${{ needs.gate.outputs.sha }}\`, from [run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          Deleted by the first daily sweep (04:17 UTC) after ${{ steps.app.outputs.expires-after }}, whether or not this pull request is still open, or straight away by commenting \`/clearpreview\`.
+          COMMENT
+
+          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
+            --field body=@"$RUNNER_TEMP/comment.md" > /dev/null
+
+      - name: Close the deployment as successful
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/deployments/${{ steps.deployment.outputs.id }}/statuses" \
+            --field state=success \
+            --field environment_url="https://${{ steps.stack.outputs.name }}.$PREVIEW_DNS_SUFFIX" \
+            --field log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > /dev/null
+
+      # A run that ends early may have created the app without finishing, and nothing later would know to collect
+      # an app that was never tagged. Deletes by name, which is known before anything exists. Best effort: the sweep
+      # is the backstop.
+      - name: Release a partial stack
+        if: (failure() || cancelled()) && steps.stack.outputs.name != ''
+        env:
+          NAME: ${{ steps.stack.outputs.name }}
+        run: |
+          ids="$(az resource list --resource-group "$PREVIEW_RESOURCE_GROUP" \
+            --query "[?name == '${NAME}'].id" --output tsv 2>/dev/null || true)"
+          if [ -z "$ids" ]; then
+            echo "Nothing to release: no resource named ${NAME} exists."
+            exit 0
+          fi
+          echo "$ids" | xargs -r az resource delete --only-show-errors --ids
+
+      - name: Close the deployment as failed
+        if: (failure() || cancelled()) && steps.deployment.outputs.id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/deployments/${{ steps.deployment.outputs.id }}/statuses" \
+            --field state=failure \
+            --field log_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > /dev/null
+
+      # Say so on the pull request. A comment-triggered run is not attached to the pull request's checks, so
+      # otherwise a rocket is followed by nothing at all.
+      - name: Report the failure on the pull request
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            cancelled) outcome="was cancelled" ;;
+            *) outcome="failed" ;;
+          esac
+
+          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
+            --field body="### Docs preview ${outcome}
+
+          Nothing is running, and anything partly created has been deleted.
+          [Run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) has the reason.
+
+          Comment \`/preview\` to try again." > /dev/null
+
+  # A failed build never reaches the deploy job, so it says so here, from a job that holds no secret.
+  build-failed:
+    name: Report a failed build
+    needs: [gate, build]
+    if: failure() && needs.gate.outputs.sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Report the failure on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
+            --field body="### Docs preview failed to build
+
+          Nothing was deployed. [Run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) has the reason.
+
+          Comment \`/preview\` to try again." > /dev/null
+
+  clear:
+    name: Clear
+    needs: gate
+    if: needs.gate.outputs.decision == 'clear'
+    runs-on: ubuntu-latest
+    environment: Preview
+    permissions:
+      contents: read
+      pull-requests: write
+    timeout-minutes: 10
+
+    steps:
+      # **Stage two of the gate**, before anything touches Azure. Clearing deletes something somebody may be using,
+      # so it is held to the same rule as deploying. Same reasoning as the deploy job's first step: written
+      # separately from the gate, reading nothing it produced, and not to be relaxed because the gate has it.
+      - name: Check again who asked, and which workflow copy is running
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTER: ${{ github.event_name == 'issue_comment' && github.event.comment.user.login || github.triggering_actor }}
+          ALLOWED_USERS: ${{ vars.PREVIEW_ALLOWED_USERS }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUNNER_KIND: ${{ runner.environment }}
+        run: |
+          refuse() { echo "::error::Refusing to clear: $*"; exit 1; }
+
+          [ -n "$DEFAULT_BRANCH" ] || refuse "the event names no default branch."
+          [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] || refuse "running from $GITHUB_REF, not $DEFAULT_BRANCH."
+          case "$WORKFLOW_REF" in
+            *"@refs/heads/$DEFAULT_BRANCH") ;;
+            *) refuse "the workflow file comes from $WORKFLOW_REF, not $DEFAULT_BRANCH." ;;
+          esac
+
+          [ "$RUNNER_KIND" = github-hosted ] || refuse "this is a '$RUNNER_KIND' runner, not a GitHub-hosted one."
+
+          [ -n "$REQUESTER" ] || refuse "nobody is named as having asked."
+          can_push="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$REQUESTER/permission" \
+            --jq '.user.permissions.push' 2>/dev/null || true)"
+          [ "$can_push" = true ] || refuse "GitHub does not confirm $REQUESTER can push here (got '$can_push')."
+
+          printf '%s\n' "$ALLOWED_USERS" | tr ',' '\n' | tr ' ' '\n' | grep -qixF -- "$REQUESTER" \
+            || refuse "$REQUESTER is not in PREVIEW_ALLOWED_USERS."
+
+          echo "Stage two passed for $REQUESTER, from $DEFAULT_BRANCH, on a GitHub-hosted runner."
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_PREVIEW_CREDENTIALS }}
+
+      # The trailing dash keeps pull request 3 from deleting pull request 31's previews. Every docs prefix starts
+      # `doc` and every server prefix `srv`, so this cannot match a server stack, and the shared infrastructure is
+      # not named for a pull request and carries delete locks besides.
+      - name: Delete every docs preview for this pull request
+        id: delete
+        env:
+          PREFIX: ${{ needs.gate.outputs.name-prefix }}-
+        run: |
+          ids="$(az resource list --resource-group "$PREVIEW_RESOURCE_GROUP" \
+            --query "[?starts_with(name, '${PREFIX}')].id" --output tsv)"
+
+          if [ -z "$ids" ]; then
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            echo "Nothing to clear: no resource is named for ${PREFIX}."
+            exit 0
+          fi
+
+          count="$(echo "$ids" | wc -l)"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          echo "Deleting ${count} resources named for ${PREFIX}:"
+          echo "$ids"
+          echo "$ids" | xargs -r az resource delete --only-show-errors --ids
+
+      - name: Report on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
+            --field body="Cleared ${{ steps.delete.outputs.count }} docs preview resources for this pull request. Comment \`/preview\` for a fresh one." \
+            > /dev/null
+
+      # A clear that fails is worse than a deploy that fails: the reaction says it was understood, so somebody
+      # believes their previews are gone. Say otherwise.
+      - name: Report the failure on the pull request
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${{ needs.gate.outputs.pull-request }}/comments" \
+            --field body="### Clearing docs previews failed
+
+          Some or all of this pull request's docs previews may still be running.
+          [Run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) has the reason.
+
+          Comment \`/clearpreview\` to try again." > /dev/null

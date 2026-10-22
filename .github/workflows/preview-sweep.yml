@@ -1,0 +1,101 @@
+# Deletes docs previews deployed three or more days ago, open pull request or not, and docs previews whose pull
+# request closed three or more days ago. Daily, so a preview lives between three and four days.
+#
+# A copy of the ReadyM server's sweep, running the same script. It enumerates from Azure rather than from any
+# record of what was deployed, and selects on the `preview-repository` tag, so it only ever considers this
+# repository's previews: never the server's, which share the resource group, and never a fork's.
+#
+# It never checks out or runs anything from a pull request, so no pull request can influence what it does.
+name: Sweep previews
+
+on:
+  schedule:
+    # Same time as the server's sweep, which the preview comment quotes.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: Delete rather than report. Leave off to see what would happen.
+        required: false
+        type: boolean
+        default: false
+      retention-days:
+        description: How long a preview is kept after it was deployed, and after its pull request closes.
+        required: false
+        type: number
+        default: 3
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+env:
+  PREVIEW_RESOURCE_GROUP: readym-preview
+
+jobs:
+  # A fork inherits this file and its schedule, so a repository with no preview configuration must sweep nothing
+  # rather than fail at Azure login every morning. A separate job because a secret cannot be read in a job-level
+  # `if`, and only a job declaring the environment can see an environment secret. It reads the secret only to see
+  # whether it is there.
+  configured:
+    name: Check configuration
+    runs-on: ubuntu-latest
+    environment: Preview
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+
+    steps:
+      - name: Is this repository set up to deploy previews
+        id: check
+        env:
+          CREDENTIALS: ${{ secrets.AZURE_PREVIEW_CREDENTIALS }}
+        run: |
+          if [ -n "$CREDENTIALS" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::This repository has no AZURE_PREVIEW_CREDENTIALS on its Preview environment, so it has" \
+              "no previews to sweep. Skipping."
+          fi
+
+  sweep:
+    name: Sweep previews
+    needs: configured
+    if: needs.configured.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    environment: Preview
+    timeout-minutes: 20
+
+    steps:
+      # No ref given, so this is the default branch's copy of the script.
+      - name: Checkout the sweep
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_PREVIEW_CREDENTIALS }}
+
+      # The scheduled run deletes. Manual dispatch reports unless asked to delete, so there is always a way to see
+      # what a sweep would do without it doing anything.
+      - name: Sweep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DELETE: ${{ github.event_name == 'workflow_dispatch' && inputs.delete || github.event_name == 'schedule' }}
+          RETENTION_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.retention-days || 3 }}
+        run: |
+          arguments=(
+            -ResourceGroup "$PREVIEW_RESOURCE_GROUP"
+            -Repository "${{ github.repository }}"
+            -RetentionDays "$RETENTION_DAYS"
+          )
+
+          if [ "$DELETE" = true ]; then
+            arguments+=(-DeleteForReal)
+          fi
+
+          pwsh -NoProfile -File .github/scripts/Remove-ExpiredPreviewStacks.ps1 "${arguments[@]}"
