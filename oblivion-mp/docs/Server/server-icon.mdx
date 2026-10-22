@@ -1,0 +1,46 @@
+---
+sidebar_position: 4.25
+---
+
+# Server icon
+
+Your server's icon is the small square image next to its name in the Launcher's server list.
+
+## Adding an icon
+
+Put one image named `icon.png`, `icon.jpg`, `icon.jpeg` or `icon.webp` in a `branding/` folder next to `config.json`:
+
+```text
+server/
+├── config.json
+├── branding/
+|   ├── icon.png                      # The server icon
+|   └── card/                         # Optional, see Server card
+└── ...
+```
+
+The icon is part of your server's [public listing](publishing-your-server), so it only shows while `ServerList:Enabled` is `true`.
+
+## What the icon must be
+
+| Rule | Value |
+| --- | --- |
+| Format | PNG, JPEG or WebP, matching the file's extension |
+| Shape | Square |
+| Size | From 64x64 to 512x512 pixels; 256x256 looks sharp on every screen |
+| File size | At most 256 KiB |
+
+SVG and ICO files are not accepted. Keep exactly one `icon.*` file: with more than one, none is used.
+
+When the server starts, and whenever the file changes, it checks the icon and logs a warning naming the file and the rule it breaks, if any.
+
+## How it reaches players
+
+Your server never sends the icon to players. It uploads the icon to ReadyM once, and players load it from ReadyM's servers. Players who browse the list don't connect to your server until they open its Join panel.
+
+- **Changing it:** replace the file. You **don't need to restart**: the server notices the change, and the new icon shows in the list within about a minute.
+- **Removing it:** delete the file. The list goes back to the default placeholder within about a minute.
+
+---
+
+Icons come straight from your server, with no review by ReadyM. The [ReadyM Terms of Service](https://portal.ready.mp/en/terms) apply to them like to your server's name and description, and violations may get your server removed from the public list or your account banned.

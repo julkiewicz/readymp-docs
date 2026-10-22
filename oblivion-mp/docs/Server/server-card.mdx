@@ -10,24 +10,26 @@ Cards have no scripts. Everything else a page can do with HTML and CSS, includin
 
 ## Adding a card
 
-Create a `card/` folder next to `config.json` and put an `index.html` in it. Any images and fonts the card uses go in the same folder.
+Create a `branding/card/` folder next to `config.json` and put an `index.html` in it. Any images and fonts the card uses go in the same folder. The `branding/` folder also holds your [server icon](server-icon).
 
 ```text
 server/
 ├── config.json
-├── card/
-|   ├── index.html                    # The card itself
-|   ├── art/
-|   |   ├── banner.webp
-|   |   └── logo.png
-|   └── fonts/
-|       └── title.woff2
+├── branding/
+|   ├── icon.png                      # The server icon, see Server icon
+|   └── card/
+|       ├── index.html                # The card itself
+|       ├── art/
+|       |   ├── banner.webp
+|       |   └── logo.png
+|       └── fonts/
+|           └── title.woff2
 └── ...
 ```
 
 A card can be just `index.html`. A minimal one:
 
-```html title="card/index.html"
+```html title="branding/card/index.html"
 <style>
   .card { padding: 20px 24px; }
   .card h1 { margin: 0 0 8px; font-size: 26px; }
@@ -93,7 +95,7 @@ Write CSS in `<style>` elements or `style` attributes. Modern CSS works as in a 
 
 What is removed:
 
-- **URLs that are not card files.** A declaration whose `url()` points anywhere but a file in your `card/` folder is dropped whole. See [Images and fonts](#images-and-fonts).
+- **URLs that are not card files.** A declaration whose `url()` points anywhere but a file in your `branding/card/` folder is dropped whole. See [Images and fonts](#images-and-fonts).
 - **Functions that can load from text:** `image-set()`, `-webkit-image-set()`, `cross-fade()`, `image()`, `element()` and `paint()` drop their declaration.
 - **At-rules** other than `@media`, `@keyframes` and `@font-face`. `@import`, `@supports`, `@layer`, `@container`, `@property` and `@page` are removed.
 - **Rules aimed at the card's container:** selectors using `:host`, `:host-context()` or `::slotted()`.
@@ -108,11 +110,11 @@ Write `url()` directly in a property rather than in a shorthand that also uses `
 
 ### Animations
 
-CSS animations and transitions run. Players who turned on reduced motion in Windows get the card without them.
+CSS animations and transitions always run.
 
 ## Images and fonts
 
-Images (`<img src>`) and CSS URLs (`url()`, in backgrounds and in `@font-face`) must be paths relative to the `card/` folder, such as `logo.png` or `fonts/title.woff2`.
+Images (`<img src>`) and CSS URLs (`url()`, in backgrounds and in `@font-face`) must be paths relative to the `branding/card/` folder, such as `logo.png` or `fonts/title.woff2`.
 
 Not allowed: absolute URLs, `//` URLs, `data:` URLs, paths starting with `/`, `./` or `../`, and paths with `?`, `#` or `\`. A card loads nothing from anywhere else, so it can't track the players who open it.
 
@@ -158,7 +160,7 @@ Links open in the player's web browser, never inside the Launcher. Before openin
 
 Save `index.html` as UTF-8. If `index.html` is too big or too slow, players see the description instead. An image or font past a limit is left out on its own, and the rest of the card still shows.
 
-When the server starts, it checks the `card/` folder and logs a warning for anything the Launcher won't accept: a missing `index.html`, a file over a limit, or a file of an unsupported type.
+When the server starts, it checks the `branding/card/` folder and logs a warning for anything the Launcher won't accept: a missing `index.html`, a file over a limit, or a file of an unsupported type.
 
 ---
 
