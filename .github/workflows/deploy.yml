@@ -35,10 +35,13 @@ jobs:
           persist-credentials: false
       # Node 24 is the active LTS line. Node 20, used until now, reached end of life in April 2026 and gets no
       # security fixes.
+      #
+      # No dependency cache, deliberately. Actions caches are scoped by branch, and a docs preview builds a pull
+      # request's code in a run scoped to master, where that code can write cache entries. Restoring master's yarn
+      # cache here would let a poisoned entry into the live site. A fresh install costs about a minute per deploy.
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: yarn
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
