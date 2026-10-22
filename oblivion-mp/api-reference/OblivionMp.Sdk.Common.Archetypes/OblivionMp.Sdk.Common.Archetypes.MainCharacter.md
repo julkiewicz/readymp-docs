@@ -15,6 +15,7 @@ A player's character in the world.
 [Include(typeof(AnimationMovement), "")]
 [Include(typeof(AnimationState), "")]
 [Include(typeof(Appearance), "")]
+[Include(typeof(CharacterIdentity), "")]
 [Include(typeof(Equipment), "")]
 [Include(typeof(Vitals), "")]
 [Include(typeof(PlayerActivity), "")]
@@ -136,6 +137,18 @@ public NativeString256 BeardPath { get; set; }
 
  NativeString256
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_Birthsign"></a> Birthsign
+
+The form ID of the character's birthsign.
+
+```csharp
+public FormId Birthsign { get; set; }
+```
+
+#### Property Value
+
+ FormId
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_BlockAnimLayerClassName"></a> BlockAnimLayerClassName
 
 The class name of the animation layer for blocking.
@@ -249,6 +262,18 @@ public CharacterStateFlags CharacterStateFlags { get; set; }
 #### Property Value
 
  CharacterStateFlags
+
+### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_Class"></a> Class
+
+The form ID of the character's class.
+
+```csharp
+public FormId Class { get; set; }
+```
+
+#### Property Value
+
+ FormId
 
 ### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_ComboHitIndex"></a> ComboHitIndex
 
@@ -672,12 +697,36 @@ public bool IsDead { get; }
 
  [bool](https://learn.microsoft.com/dotnet/api/system.boolean)
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_IsFemale"></a> IsFemale
+
+Whether the character is female.
+
+```csharp
+public bool IsFemale { get; set; }
+```
+
+#### Property Value
+
+ [bool](https://learn.microsoft.com/dotnet/api/system.boolean)
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_IsMoving"></a> IsMoving
 
 Whether the character is moving.
 
 ```csharp
 public bool IsMoving { get; set; }
+```
+
+#### Property Value
+
+ [bool](https://learn.microsoft.com/dotnet/api/system.boolean)
+
+### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_IsServerSeeded"></a> IsServerSeeded
+
+Set by the server when it writes an npc's items, so the owner client follows the list even when it is empty.
+
+```csharp
+public bool IsServerSeeded { get; set; }
 ```
 
 #### Property Value
@@ -844,6 +893,18 @@ public NativeString256 MustachePath { get; set; }
 
  NativeString256
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_Name"></a> Name
+
+The character's name, as typed in character creation. The player's nickname is **NicknameMixin**.
+
+```csharp
+public NativeString256 Name { get; set; }
+```
+
+#### Property Value
+
+ NativeString256
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_OrientRotationToMovement"></a> OrientRotationToMovement
 
 Whether the character turns to face the way it moves.
@@ -915,6 +976,18 @@ public Vector3 Position { get; set; }
 #### Property Value
 
  [Vector3](https://learn.microsoft.com/dotnet/api/system.numerics.vector3)
+
+### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_Race"></a> Race
+
+The form ID of the character's race.
+
+```csharp
+public FormId Race { get; set; }
+```
+
+#### Property Value
+
+ FormId
 
 ### <a id="OblivionMp_Sdk_Common_Archetypes_MainCharacter_RacePath"></a> RacePath
 

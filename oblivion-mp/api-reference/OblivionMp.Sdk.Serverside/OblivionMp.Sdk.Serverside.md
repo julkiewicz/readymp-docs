@@ -32,6 +32,11 @@ The session's game time, read from an area's clock.
 The difficulty every client in the session runs at.
 Leaving a tier Unset keeps clients on the game's own default tier (Adept).
 
+ [SessionRespawn](../OblivionMp.Sdk.Serverside/OblivionMp.Sdk.Serverside.SessionRespawn.md)
+
+When the server refills a cell with the items, plants, container loot and spawns it was seeded with. A cell refills
+once **IntervalGameHours** of game time have passed since it was last filled.
+
  [SessionScaling](../OblivionMp.Sdk.Serverside/OblivionMp.Sdk.Serverside.SessionScaling.md)
 
 The level every client in the session resolves leveled lists at (creature spawns, container loot).

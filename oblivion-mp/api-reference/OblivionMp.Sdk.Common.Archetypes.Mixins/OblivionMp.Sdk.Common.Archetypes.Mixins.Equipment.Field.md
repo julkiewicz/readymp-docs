@@ -54,6 +54,18 @@ public static Value<Equipment, NetworkFormId> CurrentPoison { get; }
 
  Value<[Equipment](../OblivionMp.Sdk.Common.Archetypes.Mixins/OblivionMp.Sdk.Common.Archetypes.Mixins.Equipment.md), NetworkFormId\>
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_Mixins_Equipment_Field_IsServerSeeded"></a> IsServerSeeded
+
+Names Equipment.IsServerSeeded.
+
+```csharp
+public static Value<Equipment, bool> IsServerSeeded { get; }
+```
+
+#### Property Value
+
+ Value<[Equipment](../OblivionMp.Sdk.Common.Archetypes.Mixins/OblivionMp.Sdk.Common.Archetypes.Mixins.Equipment.md), [bool](https://learn.microsoft.com/dotnet/api/system.boolean)\>
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_Mixins_Equipment_Field_Items"></a> Items
 
 Names Equipment's Items collection.
