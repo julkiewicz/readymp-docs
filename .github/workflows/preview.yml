@@ -28,10 +28,13 @@
 # copy on whichever branch is picked, which could be an edited one, so both stages refuse anything but the default
 # branch's, and the Preview environment only releases its secret to the default branch besides.
 #
-# Accepted risks, recorded in the ReadyM server's docs/dev/specs/current-docs-previews-and-expiry.md: the head can
-# move between a teammate reading a pull request and the deploy, and a build can write to the default branch's
-# Actions cache. Both need a teammate to preview a malicious pull request, so read a pull request from outside the
-# team before typing /preview on it.
+# Accepted risk, recorded in the ReadyM server's docs/dev/specs/current-docs-previews-and-expiry.md: the head can
+# move between a teammate reading a pull request and the deploy. It needs a teammate to preview a malicious pull
+# request, so read a pull request from outside the team before typing /preview on it.
+#
+# The build job runs in a run scoped to master, so pull request code there can write master's Actions cache. That
+# is why the build job uses no cache, and why deploy.yml, which publishes the live site, restores none either. Do
+# not add a dependency cache to deploy.yml while this workflow exists.
 name: Preview
 
 on:
