@@ -281,10 +281,10 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$DECISION" = clear ]; then
-            heading="### 🧹 Clearing docs previews"
+            heading="### ⏳ In progress: clearing docs previews"
             rows="| previews | every \`${NAME_PREFIX}-*\` |"
           else
-            heading="### 🚀 Docs preview deploying"
+            heading="### ⏳ In progress: docs preview deploying"
             name="${NAME_PREFIX}-${SHA:0:7}"
             rows="| commit | [\`${SHA:0:7}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${NUMBER}/commits/${SHA}) |
           | preview | \`${name}\` |
@@ -296,8 +296,12 @@ jobs:
             fi
           fi
 
+          # First row, so whether it is still running is the first thing anyone reads. The job that finishes
+          # rewrites this row with the outcome and the time it finished.
+          started="$(date -u '+%H:%M UTC')"
           details="| | |
           | --- | --- |
+          | status | ⏳ in progress, started ${started} |
           ${rows}
           | requested by | @${REQUESTER} |
           | run | [${GITHUB_RUN_ID}](${RUN_URL}) |"
@@ -632,13 +636,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ needs.gate.outputs.pull-request }}
           COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
-          DETAILS: ${{ needs.gate.outputs.status-details }}
+          STATUS_DETAILS: ${{ needs.gate.outputs.status-details }}
           EXPIRES_AFTER: ${{ steps.app.outputs.expires-after }}
         run: |
+          mark="✅"
+          # The status row says when it finished, in place of "in progress".
+          finished="$(date -u '+%H:%M UTC')"
+          details="$(printf '%s\n' "$STATUS_DETAILS" | sed -E "s/^\| status \| .*, started (.*) \|$/| status | ${mark} finished at ${finished}, started \1 |/")"
+
           {
-            echo "### ✅ Docs preview ready"
+            echo "### ✅ Finished: docs preview ready"
             echo
-            echo "$DETAILS"
+            echo "$details"
             echo
             echo "Reachable on the tailnet only, and your machine needs to trust the preview certificate once."
             echo "Deleted by the first daily sweep (04:17 UTC) after ${EXPIRES_AFTER}, whether or not this pull request is still open, or straight away by commenting \`/clearpreview\`."
@@ -701,13 +710,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ needs.gate.outputs.pull-request }}
           COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
-          DETAILS: ${{ needs.gate.outputs.status-details }}
+          STATUS_DETAILS: ${{ needs.gate.outputs.status-details }}
           JOB_STATUS: ${{ job.status }}
           EXISTED: ${{ steps.existing.outputs.existed }}
         run: |
           case "$JOB_STATUS" in
-            cancelled) heading="### ⏹️ Docs preview cancelled" ;;
-            *) heading="### ❌ Docs preview failed" ;;
+            cancelled) heading="### ⏹️ Finished: docs preview cancelled"; mark="⏹️" ;;
+            *) heading="### ❌ Finished: docs preview failed"; mark="❌" ;;
           esac
 
           if [ "$EXISTED" = true ]; then
@@ -716,10 +725,14 @@ jobs:
             state="Nothing is running, and anything partly created has been deleted."
           fi
 
+          # The status row says when it finished, in place of "in progress".
+          finished="$(date -u '+%H:%M UTC')"
+          details="$(printf '%s\n' "$STATUS_DETAILS" | sed -E "s/^\| status \| .*, started (.*) \|$/| status | ${mark} finished at ${finished}, started \1 |/")"
+
           {
             echo "$heading"
             echo
-            echo "$DETAILS"
+            echo "$details"
             echo
             echo "${state} The run has the reason. Comment \`/preview\` to try again."
           } > "$RUNNER_TEMP/status.md"
@@ -746,12 +759,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ needs.gate.outputs.pull-request }}
           COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
-          DETAILS: ${{ needs.gate.outputs.status-details }}
+          STATUS_DETAILS: ${{ needs.gate.outputs.status-details }}
         run: |
+          mark="❌"
+          # The status row says when it finished, in place of "in progress".
+          finished="$(date -u '+%H:%M UTC')"
+          details="$(printf '%s\n' "$STATUS_DETAILS" | sed -E "s/^\| status \| .*, started (.*) \|$/| status | ${mark} finished at ${finished}, started \1 |/")"
+
           {
-            echo "### ❌ Docs preview failed to build"
+            echo "### ❌ Finished: docs preview failed to build"
             echo
-            echo "$DETAILS"
+            echo "$details"
             echo
             echo "Nothing was deployed. The run has the reason. Comment \`/preview\` to try again."
           } > "$RUNNER_TEMP/status.md"
@@ -850,13 +868,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ needs.gate.outputs.pull-request }}
           COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
-          DETAILS: ${{ needs.gate.outputs.status-details }}
+          STATUS_DETAILS: ${{ needs.gate.outputs.status-details }}
           COUNT: ${{ steps.delete.outputs.count }}
         run: |
+          mark="✅"
+          # The status row says when it finished, in place of "in progress".
+          finished="$(date -u '+%H:%M UTC')"
+          details="$(printf '%s\n' "$STATUS_DETAILS" | sed -E "s/^\| status \| .*, started (.*) \|$/| status | ${mark} finished at ${finished}, started \1 |/")"
+
           {
-            echo "### ✅ Docs previews cleared"
+            echo "### ✅ Finished: docs previews cleared"
             echo
-            echo "$DETAILS"
+            echo "$details"
             echo
             echo "Deleted ${COUNT} docs preview resources. Comment \`/preview\` for a fresh one."
           } > "$RUNNER_TEMP/status.md"
@@ -877,12 +900,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ needs.gate.outputs.pull-request }}
           COMMENT_ID: ${{ needs.gate.outputs.status-comment }}
-          DETAILS: ${{ needs.gate.outputs.status-details }}
+          STATUS_DETAILS: ${{ needs.gate.outputs.status-details }}
         run: |
+          mark="❌"
+          # The status row says when it finished, in place of "in progress".
+          finished="$(date -u '+%H:%M UTC')"
+          details="$(printf '%s\n' "$STATUS_DETAILS" | sed -E "s/^\| status \| .*, started (.*) \|$/| status | ${mark} finished at ${finished}, started \1 |/")"
+
           {
-            echo "### ❌ Clearing docs previews failed"
+            echo "### ❌ Finished: clearing docs previews failed"
             echo
-            echo "$DETAILS"
+            echo "$details"
             echo
             echo "Some or all of this pull request's docs previews may still be running. The run has the reason. Comment \`/clearpreview\` to try again."
           } > "$RUNNER_TEMP/status.md"
