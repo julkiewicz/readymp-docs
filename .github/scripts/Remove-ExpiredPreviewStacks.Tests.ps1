@@ -53,11 +53,21 @@ Expect -Expected $false -Description 'open, deployed four days ago, kept for sev
     -DeployedAt $now.AddDays(-4) -RetentionDays 7
 Expect -Expected $false -Description 'open, deployed in the future' -ClosedAt $null -DeployedAt $now.AddDays(1)
 
-Write-Host 'Whichever comes first wins:'
-Expect -Expected $true -Description 'deployed a day ago, closed four days ago (clock oddity)' `
-    -ClosedAt $now.AddDays(-4) -DeployedAt $now.AddDays(-1)
+Write-Host 'The close rule covers stacks deployed while the pull request was open:'
 Expect -Expected $false -Description 'deployed two days ago, closed one day ago' `
     -ClosedAt $now.AddDays(-1) -DeployedAt $now.AddDays(-2)
+Expect -Expected $true -Description 'deployed at an unknown time, closed four days ago' `
+    -ClosedAt $now.AddDays(-4) -DeployedAt $null
+
+Write-Host 'A preview of an already merged pull request gets its full period from its own deploy:'
+Expect -Expected $false -Description 'merged four days ago, deployed a day ago' `
+    -ClosedAt $now.AddDays(-4) -DeployedAt $now.AddDays(-1)
+Expect -Expected $false -Description 'merged a year ago, deployed just under three days ago' `
+    -ClosedAt $now.AddYears(-1) -DeployedAt $now.AddDays(-3).AddMinutes(1)
+Expect -Expected $true -Description 'merged a year ago, deployed three days ago' `
+    -ClosedAt $now.AddYears(-1) -DeployedAt $now.AddDays(-3)
+Expect -Expected $true -Description 'not found, deploy run not found either' `
+    -ClosedAt ([DateTimeOffset]::MinValue) -DeployedAt ([DateTimeOffset]::MinValue)
 
 Write-Host 'A closed pull request is collected once the period has passed:'
 Expect -Expected $false -Description 'closed a moment ago' -ClosedAt $now

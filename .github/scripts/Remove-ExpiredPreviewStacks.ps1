@@ -167,9 +167,14 @@ function Get-StackDeployedAt {
     exercised directly by Remove-ExpiredPreviewStacks.Tests.ps1, which matters more here than anywhere else in
     this system: everything else fails visibly, and this fails by deleting something it should have kept.
 
-    Expired when either moment is at least RetentionDays ago. $null means that moment is not known, or has not
-    happened: $ClosedAt is $null while the pull request is open, $DeployedAt when it could not be established.
-    DateTimeOffset.MinValue means long ago, and therefore collectable.
+    Expired when it was deployed at least RetentionDays ago, or when its pull request closed at least RetentionDays
+    ago and the stack was deployed before that. $null means a moment is not known, or has not happened: $ClosedAt
+    is $null while the pull request is open, $DeployedAt when it could not be established. DateTimeOffset.MinValue
+    means long ago, and therefore collectable.
+
+    **The close rule only covers stacks deployed while the pull request was open**, or at a time nobody knows. A
+    merged or closed pull request can be previewed on purpose, and that preview gets its full period from its own
+    deploy; counting from a close that happened before it existed would delete it at the next sweep.
 #>
 function Test-StackExpired {
     param(
@@ -179,8 +184,11 @@ function Test-StackExpired {
         [DateTimeOffset] $Now
     )
 
-    foreach ($moment in @($DeployedAt, $ClosedAt)) {
-        if ($null -ne $moment -and ($Now - $moment).TotalDays -ge $RetentionDays) { return $true }
+    if ($null -ne $DeployedAt -and ($Now - $DeployedAt).TotalDays -ge $RetentionDays) { return $true }
+
+    $deployedBeforeClose = $null -eq $DeployedAt -or ($null -ne $ClosedAt -and $DeployedAt -le $ClosedAt)
+    if ($null -ne $ClosedAt -and $deployedBeforeClose -and ($Now - $ClosedAt).TotalDays -ge $RetentionDays) {
+        return $true
     }
 
     $false

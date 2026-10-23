@@ -86,6 +86,7 @@ pull request when it is ready, after a few minutes.
   preview certificate once, the same one the ReadyM server's previews use.
 - **Three days.** A preview is deleted by the daily sweep once it is three days old, whether or not the pull request
   is still open. Comment `/clearpreview` to delete a pull request's previews straight away.
+- **Merged too.** On a merged or closed pull request, `/preview` deploys its last head, and the comment says so.
 - **Read it first.** A preview builds the pull request's code. On a pull request from outside the team, read the
   change before you type `/preview`.
 
