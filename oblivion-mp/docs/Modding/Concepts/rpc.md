@@ -129,11 +129,6 @@ runs none of your code for it.
 
 These four are the only modes a mod may use. A client sends nothing until it has joined the server.
 
-The server drops a message sent to anyone other than its contract's mode, so a modified client cannot widen who hears
-it. To check that, the server has to load your contracts. A mod that declares `[ClientToClients]` therefore needs a
-server half, even one holding nothing but the shared assembly in its `server` folder. Without one the server logs an
-error naming the mod, and checks no client-to-clients message from any mod.
-
 ### Handlers
 
 On each half, write a `sealed partial class` marked `[RpcHandlersFor(typeof(RpcContracts))]`, naming your contracts
