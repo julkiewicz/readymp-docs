@@ -248,17 +248,20 @@ jobs:
             exit 0
           fi
 
-          # Always the pull request's current head. A closed pull request deploys nothing.
-          sha="$(gh pr view "$number" --repo "${{ github.repository }}" --json headRefOid,state --jq \
-            'select(.state == "OPEN") | .headRefOid')"
+          # Always the pull request's current head, open or not. A merged or closed pull request previews its last
+          # head, which GitHub keeps reachable through the pull request's own ref after the branch is deleted, so a
+          # change can be looked at again after it landed.
+          read -r sha state < <(gh pr view "$number" --repo "${{ github.repository }}" --json headRefOid,state \
+            --jq '.headRefOid + " " + .state')
 
           if [ -z "$sha" ]; then
-            echo "Pull request ${number} is not open, so there is nothing to preview."
-            exit 0
+            echo "::error::Pull request ${number} has no head commit to preview."
+            exit 1
           fi
 
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
-          echo "Previewing ${sha} for pull request ${number}."
+          echo "state=${state}" >> "$GITHUB_OUTPUT"
+          echo "Previewing ${sha} for pull request ${number}, which is ${state}."
 
       # One comment per command, posted the moment it is accepted and edited in place as the run finishes, the way
       # /build reports in oblivion-mod. It starts with only what was asked for and a link to this run, so a slow
@@ -273,6 +276,7 @@ jobs:
           NUMBER: ${{ steps.resolve.outputs.pull-request }}
           NAME_PREFIX: ${{ steps.resolve.outputs.name-prefix }}
           SHA: ${{ steps.resolve.outputs.sha }}
+          STATE: ${{ steps.resolve.outputs.state }}
           REQUESTER: ${{ github.event_name == 'issue_comment' && github.event.comment.user.login || github.triggering_actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -285,6 +289,11 @@ jobs:
             rows="| commit | [\`${SHA:0:7}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${NUMBER}/commits/${SHA}) |
           | preview | \`${name}\` |
           | address | https://${name}.${PREVIEW_DNS_SUFFIX} |"
+            # Said outright, so nobody mistakes a preview of what already landed for one of work still in progress.
+            if [ -n "$STATE" ] && [ "$STATE" != OPEN ]; then
+              rows="${rows}
+          | pull request | $(printf '%s' "$STATE" | tr '[:upper:]' '[:lower:]'), last head previewed |"
+            fi
           fi
 
           details="| | |
