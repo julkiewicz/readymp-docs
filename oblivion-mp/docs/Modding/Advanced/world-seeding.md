@@ -42,8 +42,9 @@ public sealed partial class NoLootRespawn(IEntities entities)
 ### Seeding a cell
 
 Seeding is done by the [seed loader](https://github.com/readycodeio/obmp-seed-loader), a server-only mod that comes
-with the server download. Its data is the seed, a snapshot of the game's data in the mod's `server/content/` folder.
-Without the mod, or without the seed, cells are not seeded.
+with the server download. Its data is the seed, a snapshot of the game's data, as one `seed.zip` file in the mod's
+`server/content/` folder. The mod reads the zip in place and never extracts it. Without the mod, or without the seed,
+cells are not seeded.
 
 When a cell entity is created on the server, the seed loader loads that cell's placed objects from the seed. Every
 object whose base form is one of the types in `SeededFormTypes.All` becomes an entity in the cell:
