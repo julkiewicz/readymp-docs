@@ -205,7 +205,7 @@ Two client-only mixins add what only this game knows about each character it sho
 | Mixin | Member | Meaning |
 | --- | --- | --- |
 | `LocalVisibility` | `Hidden` | How hard the character is to see here: 0 in plain sight, 1 invisible. |
-| `MappedActor` | `Pawn` | The game actor that shows this character, or `IntPtr.Zero` while there is none. Use it only to notice that the actor changed, never to read memory through it. |
+| `MappedActor` | `Pawn` | The game actor that shows this character, or `IntPtr.Zero` while there is none. Use it only to notice that the actor changed, never to read memory through it. An `Npc` has it too. |
 
 The MarkerMod in the SDK repository uses both to fade a name marker over each player as they hide.
 

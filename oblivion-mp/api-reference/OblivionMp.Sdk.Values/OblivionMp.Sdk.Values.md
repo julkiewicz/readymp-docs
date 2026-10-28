@@ -14,4 +14,9 @@ RGBA marker color, each channel 0..1.
 
 Handle to a marker. Zero means "no marker" (see **None**).
 
+ [MarkerStyle](../OblivionMp.Sdk.Values/OblivionMp.Sdk.Values.MarkerStyle.md)
+
+How a marker looks and where it sits. Start from **Default** and change what you need:
+<code>MarkerStyle.Default with { Socket = "head", Background = new(0, 0, 0, 0.6f), MaxWidth = 300 }</code>.
+
 

@@ -112,6 +112,10 @@ How a player consumed an item.
 
 A difficulty level of the game.
 
+ [EnchantmentType](../ReadyM.Relay.Common.Oblivion.ECS.Values/ReadyM.Relay.Common.Oblivion.ECS.Values.EnchantmentType.md)
+
+The kind of item an enchantment is made for (the engine's ENIT type field).
+
  [FormType](../ReadyM.Relay.Common.Oblivion.ECS.Values/ReadyM.Relay.Common.Oblivion.ECS.Values.FormType.md)
 
 The kind of a record in the game files.

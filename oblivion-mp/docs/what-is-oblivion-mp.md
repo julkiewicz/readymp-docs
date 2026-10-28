@@ -62,13 +62,13 @@ ReadyM is designed to do for community-run game servers what FiveM did for *Gran
 
 ## Current status
 
-OblivionMP is in **active development**. The server and the SDK are out as release candidate **1.0.0-rc.3**.
+OblivionMP is in **active development**. The server and the SDK are out as **1.0.0**.
 
 | Area | Status |
 |---|---|
-| Server binary (Windows & Linux) | 🧪 Release candidate |
+| Server binary (Windows & Linux) | ✅ Available |
 | Docker image | 🔜 Coming soon |
-| SDK (C# scripting) | 🧪 Release candidate |
+| SDK (C# scripting) | ✅ Available |
 | Client-side mods | ✅ Available |
 | Server-side mods | ✅ Available |
 | Custom RPC | ✅ Available |

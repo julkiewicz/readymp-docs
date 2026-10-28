@@ -66,6 +66,18 @@ public static Value<AlchemyForm, byte> Flags { get; }
 
  Value<[AlchemyForm](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.AlchemyForm.md), [byte](https://learn.microsoft.com/dotnet/api/system.byte)\>
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_AlchemyForm_Field_IconPath"></a> IconPath
+
+Names AlchemyForm.IconPath.
+
+```csharp
+public static Value<AlchemyForm, NativeString256> IconPath { get; }
+```
+
+#### Property Value
+
+ Value<[AlchemyForm](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.AlchemyForm.md), NativeString256\>
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_AlchemyForm_Field_ModelPath"></a> ModelPath
 
 Names AlchemyForm.ModelPath.

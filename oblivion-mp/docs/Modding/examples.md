@@ -144,4 +144,4 @@ Open these first:
 | `OblivionMp.SnapshotLoader.Serverside/Mod.cs` | Where the seed is read from, and the snapshot the seeders share. |
 | `OblivionMp.SnapshotLoader.Serverside/SnapshotCellSeeder.cs` | Seeding a new cell: furniture, containers, plants and items. |
 | `OblivionMp.SnapshotLoader.Serverside/SnapshotWorldSeeder.cs` | Seeding a new world: item values and NPC templates. |
-| `OblivionMp.SnapshotLoader.Serverside/WorldSnapshot.cs` | Loading the seed from the mod's `server/content/` folder. |
+| `OblivionMp.SnapshotLoader.Serverside/WorldSnapshot.cs` | Reading the seed from `seed.zip` in the mod's `server/content/` folder. |
