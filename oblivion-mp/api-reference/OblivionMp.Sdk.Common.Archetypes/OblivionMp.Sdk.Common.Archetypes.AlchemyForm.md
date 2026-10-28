@@ -53,6 +53,18 @@ public byte Flags { get; set; }
 
  [byte](https://learn.microsoft.com/dotnet/api/system.byte)
 
+### <a id="OblivionMp_Sdk_Common_Archetypes_AlchemyForm_IconPath"></a> IconPath
+
+The path of the item's inventory icon texture.
+
+```csharp
+public NativeString256 IconPath { get; set; }
+```
+
+#### Property Value
+
+ NativeString256
+
 ### <a id="OblivionMp_Sdk_Common_Archetypes_AlchemyForm_IsValid"></a> IsValid
 
 ```csharp

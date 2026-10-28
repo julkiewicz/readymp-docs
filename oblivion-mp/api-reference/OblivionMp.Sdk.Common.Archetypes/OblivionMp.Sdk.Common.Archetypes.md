@@ -18,6 +18,10 @@ Tokens naming each of SpellForm's values, for mappings and overrides.
 
 Tokens naming each of MainCharacter's values, for mappings and overrides.
 
+ [EnchantedItemForm.Field](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.EnchantedItemForm.Field.md)
+
+Tokens naming each of EnchantedItemForm's values, for mappings and overrides.
+
  [DroppedItem.Field](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.DroppedItem.Field.md)
 
 Tokens naming each of DroppedItem's values, for mappings and overrides.
@@ -43,6 +47,16 @@ A container placed in the world, such as a chest, barrel or sack.
  [DroppedItem](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.DroppedItem.md)
 
 An item lying on the ground.
+
+ [EnchantedItemForm](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.EnchantedItemForm.md)
+
+A dynamic enchanted item (a weapon, armor or clothing a player enchanted): every field of the item plus its
+enchantment, enough to create the item on a client that has never seen it. Fields a form type does not have
+stay at their defaults.
+
+ [EnchantedItemFormEffects](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.EnchantedItemFormEffects.md)
+
+The Effects collection of a EnchantedItemForm.
 
  [Flora](../OblivionMp.Sdk.Common.Archetypes/OblivionMp.Sdk.Common.Archetypes.Flora.md)
 

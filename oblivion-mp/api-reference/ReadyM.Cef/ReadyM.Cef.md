@@ -38,7 +38,7 @@ Where a viewport sits and how big it is: a normalized anchor rect in the parent,
 
  [CefInputMode](../ReadyM.Cef/ReadyM.Cef.CefInputMode.md)
 
-What should happen to input while a page is on screen.
+What should happen to input over a viewport while its page is on screen.
 
  [PayloadKind](../ReadyM.Cef/ReadyM.Cef.PayloadKind.md)
 

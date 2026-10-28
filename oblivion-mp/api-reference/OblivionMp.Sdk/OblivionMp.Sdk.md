@@ -28,7 +28,7 @@ Drops items into the world from the client.
 
  [IMarkers](../OblivionMp.Sdk/OblivionMp.Sdk.IMarkers.md)
 
-Markers over player characters: a line of text above their head, seen only by this player.
+Markers over characters: a line of text above a player's character or an NPC, seen only by this player.
 
  [IPlayers](../OblivionMp.Sdk/OblivionMp.Sdk.IPlayers.md)
 

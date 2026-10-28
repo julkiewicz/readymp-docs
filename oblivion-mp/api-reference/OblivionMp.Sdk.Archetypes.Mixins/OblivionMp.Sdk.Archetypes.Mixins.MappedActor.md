@@ -12,6 +12,7 @@ The game actor that shows a character in this player's game.
 ```csharp
 [ArchetypeMixin(Replication.None)]
 [Extends(typeof(MainCharacter), "")]
+[Extends(typeof(Npc), "")]
 public readonly struct MappedActor : IArchetypeMixin, IArchetypeQueryable, IEntityShape, IIndexed<nint>
 ```
 

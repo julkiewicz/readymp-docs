@@ -188,6 +188,28 @@ what it created and the incoming one creates its own, so page state is lost and 
 returns. Carrying browsers across would mean carrying every handler and delegate pointer with them,
 for ever, growing with each browser a mod created.
 
+### <a id="ReadyM_Cef_CefHost_InputModeOf_ReadyM_Cef_ViewportHandle_"></a> InputModeOf\(ViewportHandle\)
+
+The input mode a viewport is in.
+
+```csharp
+public CefInputMode InputModeOf(ViewportHandle viewport)
+```
+
+#### Parameters
+
+`viewport` [ViewportHandle](../ReadyM.Cef/ReadyM.Cef.ViewportHandle.md)
+
+#### Returns
+
+ [CefInputMode](../ReadyM.Cef/ReadyM.Cef.CefInputMode.md)
+
+#### Exceptions
+
+ [ArgumentException](https://learn.microsoft.com/dotnet/api/system.argumentexception)
+
+<code class="paramref">viewport</code> is not a viewport of this host.
+
 ### <a id="ReadyM_Cef_CefHost_IsFocusable_ReadyM_Cef_ViewportHandle_"></a> IsFocusable\(ViewportHandle\)
 
 Whether the engine may focus this viewport.
@@ -373,6 +395,10 @@ Turning it off while focused gives the keyboard up.
 IT IS THE ENGINE'S MEANING OF THE WORD. A widget that refuses focus still takes clicks, and a click on
 it hands focus to whatever underneath accepts it, which in a game is the viewport, so clicking an
 unfocusable page takes the keyboard from a page that had it.
+</p><p>
+THE KEYBOARD ONLY. To let clicks pass through a page, set its viewport to
+**DisplayOnly**, or **Bubbling** to pass them through
+wherever the page draws nothing, with **CefInputMode)**.
 </p>
 
 ### <a id="ReadyM_Cef_CefHost_SetFocused_ReadyM_Cef_ViewportHandle_System_Boolean_"></a> SetFocused\(ViewportHandle, bool\)
@@ -396,7 +422,7 @@ one. It is exclusive wherever it lands, which is the engine's to enforce.
 
 ### <a id="ReadyM_Cef_CefHost_SetInputMode_ReadyM_Cef_CefInputMode_"></a> SetInputMode\(CefInputMode\)
 
-Says what should happen to input while any page is on screen.
+Sets the input mode of EVERY viewport, and the mode viewports created later start in.
 
 ```csharp
 public void SetInputMode(CefInputMode mode)
@@ -408,8 +434,44 @@ public void SetInputMode(CefInputMode mode)
 
 #### Remarks
 
-GLOBAL, not per browser. A mode the engine cannot honour is refused and said so rather than accepted
-and quietly behaving like another one.
+Shorthand for calling **CefInputMode)** on each. A mod with more
+than one page usually wants them to differ: an always-on display in
+**DisplayOnly** so clicks pass through it, and a menu in
+**Bubbling** or **Exclusive**.
+
+#### Exceptions
+
+ [ArgumentOutOfRangeException](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception)
+
+<code class="paramref">mode</code> is not a named mode.
+
+### <a id="ReadyM_Cef_CefHost_SetInputMode_ReadyM_Cef_ViewportHandle_ReadyM_Cef_CefInputMode_"></a> SetInputMode\(ViewportHandle, CefInputMode\)
+
+Says what should happen to input over one viewport while it is on screen.
+
+```csharp
+public void SetInputMode(ViewportHandle viewport, CefInputMode mode)
+```
+
+#### Parameters
+
+`viewport` [ViewportHandle](../ReadyM.Cef/ReadyM.Cef.ViewportHandle.md)
+
+`mode` [CefInputMode](../ReadyM.Cef/ReadyM.Cef.CefInputMode.md)
+
+#### Remarks
+
+Each viewport is decided on its own, from its own mode and its own page, so a page in front never takes
+a click because of what a page behind it said. **DisplayOnly** is how a page stays
+visible without taking any clicks at all. A viewport starts in the mode last given to
+**CefInputMode)**, which is **Bubbling** until a mod says
+otherwise.
+
+#### Exceptions
+
+ [ArgumentOutOfRangeException](https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception)
+
+<code class="paramref">mode</code> is not a named mode.
 
 ### <a id="ReadyM_Cef_CefHost_SetPageFocused_ReadyM_Cef_BrowserHandle_System_Boolean_"></a> SetPageFocused\(BrowserHandle, bool\)
 
