@@ -169,7 +169,8 @@ before it is ready runs once it is.
 | `SetPlacement`, `PlacementOf`, `ZOrderOf` | Where a viewport sits and how big it is. |
 | `SetFocused`, `SetFocusable`, `IsFocusable` | Give a viewport's page the keyboard, take it back, or keep the page from ever taking it. |
 | `SetPageFocused(browser, focused)` | Tell a browser it holds the keyboard again, after its page reloads while focused. |
-| `SetInputMode` | What happens to input while a page is on screen, for all pages at once (see below). |
+| `SetInputMode(viewport, mode)`, `InputModeOf(viewport)` | What happens to the mouse over one viewport while it is on screen (see below), or ask which mode it is in. |
+| `SetInputMode(mode)` | The same for every viewport, and the mode viewports created later start in. |
 
 [`ViewportPlacement`](../../../api-reference/ReadyM.Cef/ReadyM.Cef.ViewportPlacement.md) has a named case for each
 common layout, with sizes in screen pixels and [`ViewportAlign`](../../../api-reference/ReadyM.Cef/ReadyM.Cef.ViewportAlign.md)
@@ -186,13 +187,22 @@ common layout, with sizes in screen pixels and [`ViewportAlign`](../../../api-re
 
 The page is laid out at the viewport's size, never stretched, so `window.innerWidth` is the viewport's width.
 
-[`CefInputMode`](../../../api-reference/ReadyM.Cef/ReadyM.Cef.CefInputMode.md) is `DisplayOnly` (a picture that
-takes no input), `Bubbling` (the page gets input first, the rest reaches the game) or `Exclusive` (the page takes
-everything while it is up).
+[`CefInputMode`](../../../api-reference/ReadyM.Cef/ReadyM.Cef.CefInputMode.md) is set per viewport:
+
+| Mode | What it does |
+|---|---|
+| `DisplayOnly` | No click, hover or wheel reaches the page. They go to whatever is under it. Use it for a page that is always on screen and only looked at, such as a log. |
+| `Bubbling` | The page takes the pointer where it has content, and the game gets it everywhere else. A transparent area, or an element with `pointer-events: none`, lets the click through. A viewport starts in this mode. |
+| `Exclusive` | The page takes every pointer event over its whole viewport, transparent or not. Use it for a page that must take every click, such as a modal menu. |
+
+Each viewport is decided by its own mode and its own page, so a page in front never takes a click because of what a
+page behind it said. `SetFocusable` is about the keyboard only: to let clicks through a page, change its input mode.
 
 :::note
-Not in 1.0 yet: giving a page the mouse. A page can take the keyboard with `SetFocused`, which is how chat works:
-it focuses its viewport when it opens and hands the keyboard back when it closes.
+Not in 1.0 yet: a supported way to give a page the mouse. The modes above decide where the pointer goes while the
+game shows a cursor, for example in its own menus, so a page on screen does not block clicks meant for them. A page
+can take the keyboard with `SetFocused`, which is how chat works: it focuses its viewport when it opens and hands
+the keyboard back when it closes.
 :::
 
 Register content and message names while mods load: in your `Init` or a service's `Start`. Doing it later throws.

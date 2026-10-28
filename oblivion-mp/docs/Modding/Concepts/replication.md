@@ -157,8 +157,10 @@ cannot send.
 
 :::warning
 On a replicated shape, writing a `float` or `double` that differs from the current value by 0.1 or less changes
-nothing, and a vector moved by 0.1 or less stays where it was. This keeps tiny jitters off the network. For a value
-that moves in finer steps, such as a 0 to 1 progress bar, store it scaled as a whole number (0 to 100).
+nothing, and a vector moved by 0.1 or less stays where it was. This keeps tiny jitters off the network. A change from
+0 or to 0 always counts, so a value of 0.05 set on a fresh field arrives, and so does a reset to 0. For vectors this
+goes for each axis. For a value that moves in finer steps, such as a 0 to 1 progress bar, store it scaled as a whole
+number (0 to 100).
 :::
 
 ### Wire precision
