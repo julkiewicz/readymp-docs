@@ -1,0 +1,5 @@
+# Worker bookkeeping - never commit; never let git operations clobber it (the worker rewrites it each step).
+# Each step attempt's folder: its run-state and its comms items (escalations/discoveries/redirects/btws),
+# worker/supervisor bookkeeping, tool-owned, not part of the task's work product (covers a carry's temporary
+# attempt-<n>.carrying folder too).
+attempt-*/

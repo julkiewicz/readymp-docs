@@ -1,0 +1,19 @@
+# approaches.yaml -- your ranked candidate approaches for reaching the goal.
+# You maintain this file during brainstorming. Add one list item per approach, best first (order = rank).
+# Keys are snake_case exactly as below:
+#   id:                 a stable id you assign, e.g. 2026-07-01-approach-<short-name>. Never change it.
+#   idea:               what the approach is, in prose.
+#   impact:             high | medium | low   -- expected value if it works.
+#   difficulty:         high | medium | low.
+#   chance_of_success:  high | medium | low.
+#   status:             open | completed | abandoned | blocked | rejected | out_of_scope   (omit = open).
+#                       completed = done; abandoned = started then dropped; blocked = set aside;
+#                       rejected = considered but chosen against; out_of_scope = unrelated to the goal.
+# Example (replace with your own; delete this example once you add real approaches):
+#   - id: 2026-07-01-approach-example
+#     idea: One or two sentences describing the approach.
+#     impact: medium
+#     difficulty: medium
+#     chance_of_success: medium
+#     status: open
+approaches: []
