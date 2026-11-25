@@ -23,3 +23,12 @@ next agent (dead ends, context, decisions).
   Hand edits in history (8b78300, b1ee94c) only followed SDK changes. An [Obsolete] marker or a better summary has to
   come from readym-core-sdk.
 - No other Jira issue covers this (searched OnAreaDeleted/OnCellDeleted/KeepEmptyScopes).
+
+## Outcome (2026-11-25): blocked
+- I raised escalation 2026-11-25-escalation-sdk-change-outside-docs-repo. The remaining fix is a change in readym-core-sdk
+  IServerEvents.cs ([Obsolete] the two events, or reword their summaries for OblivionMP), then a regeneration of
+  oblivion-mp/api-reference. That code is not in this repo, and obsoleting the events is the SDK owners' decision.
+- I made no docs change. The guide already says these events do not fire on OblivionMP, and the API reference page is
+  generated, so a hand edit would be overwritten.
+- I could not reproduce it at runtime from here: game-sessions start_game_server runs the checkout's own server build,
+  and this checkout is docs. The static evidence is clear-cut.
