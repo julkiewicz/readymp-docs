@@ -1,0 +1,25 @@
+approaches:
+- id: 2026-11-25-approach-sdk-obsolete
+  idea: Mark IServerEvents.OnAreaDeleted/OnCellDeleted [Obsolete] (or remove them) in readym-core-sdk, or reword their XML summaries to say an OblivionMP server never raises them, then regenerate oblivion-mp/api-reference with scripts/docfx-oblivion. This is the fix the issue asks for. The code is in readym-gameserver/readym-core-sdk, which this attempt cannot push to, and obsoleting a public SDK API across games is a product decision.
+  impact: high
+  difficulty: low
+  chance_of_success: low
+  status: blocked
+- id: 2026-11-25-approach-sdk-fire-events
+  idea: 'Make the events fire on OblivionMP by turning off KeepEmptyScopes. Rejected: keeping every area and cell is how the Oblivion server keeps world state (SaveSynchronizer, WorldBootstrap), and the change is also outside this repo.'
+  impact: medium
+  difficulty: high
+  chance_of_success: low
+  status: rejected
+- id: 2026-11-25-approach-docs-api-ref-handedit
+  idea: "Hand-edit the generated IServerEvents.md so it says the events never fire on OblivionMP. Rejected: the page is generated from the SDK's XML comments, so the next regeneration silently drops the edit, and the docs would drift from the SDK."
+  impact: low
+  difficulty: low
+  chance_of_success: medium
+  status: rejected
+- id: 2026-11-25-approach-docs-guide-reword
+  idea: 'Reword the server-events guide. Rejected as busy work: the guide (current and 1.0) already says "An OblivionMP server keeps every area/cell, so this does not fire today", and the reporter quotes that line. The docs half of the expected outcome is already met.'
+  impact: low
+  difficulty: low
+  chance_of_success: high
+  status: rejected

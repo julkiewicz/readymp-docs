@@ -1,0 +1,19 @@
+approach: 2026-11-25-approach-sdk-obsolete
+items:
+  - id: 2026-11-25-item-sdkobs-confirm-cause
+    do: >-
+      Confirm from readym-gameserver source (read-only, another run's checkout) that OnAreaDeleted/OnCellDeleted can
+      never fire on OblivionMP: ServerState.ShouldKeepScopeWhenEmpty short-circuits on _keepEmptyScopes, and
+      OblivionConfigurationExtensions sets KeepEmptyScopes = true with no condition.
+    status: done
+  - id: 2026-11-25-item-sdkobs-check-reach
+    do: >-
+      Check whether this attempt can change readym-core-sdk/readym-gameserver. It cannot: it may read and push only
+      the julkiewicz/readymp-docs fork, and the API reference here is generated from the SDK's XML comments.
+    status: done
+  - id: 2026-11-25-item-sdkobs-escalate
+    do: >-
+      Escalate the blocker. The fix needs a change in readym-core-sdk's IServerEvents.cs ([Obsolete] the two events,
+      or reword their summaries for OblivionMP) followed by a regenerated API reference. Deciding whether to obsolete
+      a shared SDK event is the SDK owners' call. Then mark this approach blocked.
+    status: done
