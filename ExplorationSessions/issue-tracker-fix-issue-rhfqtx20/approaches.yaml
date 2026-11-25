@@ -4,7 +4,7 @@ approaches:
   impact: high
   difficulty: low
   chance_of_success: low
-  status: open
+  status: blocked
 - id: 2026-11-25-approach-sdk-fire-events
   idea: 'Make the events fire on OblivionMP by turning off KeepEmptyScopes. Rejected: keeping every area and cell is how the Oblivion server keeps world state (SaveSynchronizer, WorldBootstrap), and the change is also outside this repo.'
   impact: medium
