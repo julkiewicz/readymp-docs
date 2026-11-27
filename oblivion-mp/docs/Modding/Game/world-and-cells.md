@@ -77,6 +77,7 @@ on the server `SpawnerCell.ToFullCellId(area)` turns it into a `FullCellId`, as 
 | `Furniture` | A chair, bed or other furniture | The master client loads its cell, or the server seeds the world |
 | `Door` | A door, with its lock in `LockState` and whether it stands open in `Doorway` | The server seeds the world from the game files, and restores saved doors at startup |
 | `WorldActivator` | A lever, button or other activator a script hangs off | The server seeds the world from the game files |
+| `Static` | A static object, such as a rug, a crate or a wall piece | A server mod creates it |
 
 Seeding is done by a server-side mod; see [World seeding](../Advanced/world-seeding.md). Each world object has:
 
@@ -121,6 +122,20 @@ if (whereabouts.TryGetCell(player, out var cell) && cell.MasterClient != PlayerI
 
 Players get the entity while their game has its cell loaded. `ServerRefIds.Next()` hands out ids above every ref id the game itself uses,
 starting past the highest one already given out, so they never clash with the game's or with each other.
+
+A static object is placed the same way, as a `Static` with the form of a static (`STAT`) as its `BaseId`. To move a
+placed object, write its `Position` and `Rotation`; every player sees it at the new spot. To remove it, delete its
+entity:
+
+```csharp
+rug.Position = newPosition;
+rug.Rotation = newYawDegrees;
+
+entities.Delete(rug);
+```
+
+Furniture and statics a server mod places are saved with their cell and come back when the server restarts. Who may
+place, move or remove what, such as only a house's owner, is for your server mod to check before it writes.
 
 Positions from the Construction Set or a game file are in the game's older units, with a different axis and angle
 convention. `TesUnrealSpace` converts them:
